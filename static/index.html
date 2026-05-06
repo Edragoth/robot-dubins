@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Robot Dubins Car</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: sans-serif; background: #1e1e1e; color: #fff; padding: 20px; }
+        h1 { font-size: 20px; margin-bottom: 16px; }
+        .contenedor { display: flex; gap: 20px; flex-wrap: wrap; }
+        canvas { background: #2a2a2a; border-radius: 8px; border: 1px solid #444; }
+        .panel { display: flex; flex-direction: column; gap: 14px; min-width: 220px; max-width: 260px; }
+        .caja { background: #2a2a2a; border-radius: 8px; padding: 12px; font-size: 13px; }
+        .caja h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .estado-fila { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #333; }
+        .teclas { display: grid; grid-template-columns: repeat(3, 48px); gap: 6px; justify-content: center; margin-top: 6px; }
+        .key { width: 48px; height: 48px; background: #333; border: 1px solid #555; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: pointer; transition: background 0.1s; user-select: none; }
+        .key.active { background: #1a73e8; border-color: #1a73e8; }
+        .key.vacio { background: transparent; border: none; cursor: default; }
+        button { background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 13px; width: 100%; }
+        button:hover { background: #444; }
+        select { background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; padding: 6px; font-size: 13px; width: 100%; }
+        input[type=range] { width: 100%; accent-color: #1a73e8; }
+        input[type=number] { background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; padding: 6px; font-size: 13px; width: 70px; text-align: center; }
+        .fila { display: flex; align-items: center; gap: 8px; }
+        label { font-size: 12px; color: #aaa; }
+        .colision-aviso { background: #c0392b; border-radius: 8px; padding: 10px; text-align: center; font-weight: bold; display: none; }
+    </style>
+</head>
+<body>
+    <h1>Robot Dubins Car</h1>
+    <div class="contenedor">
+        <canvas id="canvas" width="600" height="600"></canvas>
+        <div class="panel">
+
+            <div class="colision-aviso" id="aviso-colision">⚠️ Colisión — Robot reiniciado</div>
+
+            <div class="caja">
+                <h3>Modo</h3>
+                <select id="modo" onchange="cambiarModo()">
+                    <option value="manual">Manual (teclado)</option>
+                    <option value="automatico">Automático</option>
+                </select>
+            </div>
+
+            <div class="caja">
+                <h3>Velocidad</h3>
+                <div class="fila">
+                    <label>m/s</label>
+                    <input type="number" id="vel-numero" value="1.0" min="0.1" max="5.0" step="0.1" onchange="sincronizarDesdeNumero()">
+                </div>
+                <input type="range" id="vel-slider" min="0.1" max="5.0" step="0.1" value="1.0" oninput="sincronizarDesdeSlider()">
+            </div>
+
+            <div class="caja" id="panel-manual">
+                <h3>Control</h3>
+                <div class="teclas">
+                    <div class="key vacio"></div>
+                    <div class="key" id="key-up">▲</div>
+                    <div class="key vacio"></div>
+                    <div class="key" id="key-left">◀</div>
+                    <div class="key" id="key-down">▼</div>
+                    <div class="key" id="key-right">▶</div>
+                </div>
+            </div>
+
+            <div class="caja" id="panel-auto" style="display:none;">
+                <h3>Destino</h3>
+                <div class="fila"><label>X:</label><input type="number" id="x-fin" value="5" step="0.5"></div>
+                <div class="fila"><label>Y:</label><input type="number" id="y-fin" value="5" step="0.5"></div>
+                <div class="fila"><label>θ:</label><input type="number" id="theta-fin" value="0" step="0.1"></div>
+                <br>
+                <button onclick="enviarAutomatico()">Calcular trayectoria</button>
+            </div>
+
+            <div class="caja">
+                <h3>Estado del robot</h3>
+                <div class="estado-fila"><span>X</span><span id="s-x">0.000</span></div>
+                <div class="estado-fila"><span>Y</span><span id="s-y">0.000</span></div>
+                <div class="estado-fila"><span>Ángulo</span><span id="s-theta">0.0°</span></div>
+                <div class="estado-fila"><span>V</span><span id="s-v">0.000 m/s</span></div>
+                <div class="estado-fila"><span>W</span><span id="s-w">0.000 rad/s</span></div>
+            </div>
+
+            <button onclick="resetear()">Reiniciar robot</button>
+
+        </div>
+    </div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx    = canvas.getContext("2d");
+const W = canvas.width, H = canvas.height;
+const LIMITE = 25.0;
+const ESCALA = W / (LIMITE * 2);
+
+const obstaculos = [
+    { x: -14.0, y: 12.0,  w: 2.0,  h: 12.0, ang: -45 },
+    { x:  10.0, y: 14.0,  w: 12.0, h: 4.0,  ang:   0 },
+    { x: -5.0,  y: -10.0, w: 4.0,  h: 8.0,  ang:   0 },
+    { x:  10.0, y: -10.0, w: 8.0,  h: 4.0,  ang:   0 },
+];
+
+let ws;
+let trayectoria  = [];
+let estadoActual = { x: 0, y: 0, theta: 0, v: 0, w: 0 };
+let loop;
+
+function mundoACanvas(x, y) {
+    return {
+        cx: W/2 + x * ESCALA,
+        cy: H/2 - y * ESCALA
+    };
+}
+
+function conectar() {
+    ws = new WebSocket("ws://localhost:8000/ws");
+    ws.onopen    = () => { console.log("Conectado"); iniciarLoop(); };
+    ws.onmessage = (e) => {
+        const data   = JSON.parse(e.data);
+        estadoActual = data;
+        trayectoria  = data.trayectoria || [];
+        dibujar();
+        actualizarEstado();
+        if (data.colision) mostrarColision();
+    };
+    ws.onclose = () => { clearInterval(loop); setTimeout(conectar, 1000); };
+}
+
+function iniciarLoop() {
+    loop = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify({ tipo: "tick" }));
+    }, 100);
+}
+
+function dibujarObstaculo(obs) {
+    const { cx, cy } = mundoACanvas(obs.x, obs.y);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-obs.ang * Math.PI / 180);
+    ctx.fillRect(-obs.w/2 * ESCALA, -obs.h/2 * ESCALA, obs.w * ESCALA, obs.h * ESCALA);
+    ctx.restore();
+}
+
+function dibujar() {
+    ctx.clearRect(0, 0, W, H);
+
+    ctx.fillStyle = "#f5f5f0";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = "rgba(0,0,0,0.08)";
+    ctx.lineWidth   = 0.5;
+    for (let x = 0; x < W; x += ESCALA * 5) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += ESCALA * 5) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    ctx.strokeStyle = "#222";
+    ctx.lineWidth   = 4;
+    ctx.strokeRect(2, 2, W-4, H-4);
+
+    obstaculos.forEach((obs, i) => {
+        ctx.fillStyle = i === 1 ? "#222" : "#2e7d9e";
+        dibujarObstaculo(obs);
+    });
+
+    if (trayectoria.length > 1) {
+        ctx.beginPath();
+        ctx.strokeStyle = "#e74c3c";
+        ctx.lineWidth   = 1.5;
+        const p0 = mundoACanvas(trayectoria[0][0], trayectoria[0][1]);
+        ctx.moveTo(p0.cx, p0.cy);
+        for (let i = 1; i < trayectoria.length; i++) {
+            const p = mundoACanvas(trayectoria[i][0], trayectoria[i][1]);
+            ctx.lineTo(p.cx, p.cy);
+        }
+        ctx.stroke();
+    }
+
+    const { cx, cy } = mundoACanvas(estadoActual.x, estadoActual.y);
+    const theta = estadoActual.theta;
+    const largo = 14;
+
+    ctx.beginPath();
+    ctx.fillStyle = "#1a73e8";
+    ctx.arc(cx, cy, 8, 0, 2 * Math.PI);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth   = 2.5;
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + largo * Math.cos(theta), cy - largo * Math.sin(theta));
+    ctx.stroke();
+}
+
+function actualizarEstado() {
+    document.getElementById("s-x").textContent     = estadoActual.x;
+    document.getElementById("s-y").textContent     = estadoActual.y;
+    document.getElementById("s-theta").textContent = (estadoActual.theta * 180 / Math.PI).toFixed(1) + "°";
+    document.getElementById("s-v").textContent     = estadoActual.v + " m/s";
+    document.getElementById("s-w").textContent     = estadoActual.w + " rad/s";
+}
+
+function mostrarColision() {
+    const aviso = document.getElementById("aviso-colision");
+    aviso.style.display = "block";
+    setTimeout(() => aviso.style.display = "none", 2000);
+}
+
+function sincronizarDesdeSlider() {
+    const val = parseFloat(document.getElementById("vel-slider").value);
+    document.getElementById("vel-numero").value = val.toFixed(1);
+    enviarVelocidad(val);
+}
+
+function sincronizarDesdeNumero() {
+    let val = parseFloat(document.getElementById("vel-numero").value);
+    val = Math.max(0.1, Math.min(5.0, val));
+    document.getElementById("vel-slider").value = val;
+    enviarVelocidad(val);
+}
+
+function enviarVelocidad(val) {
+    if (ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ tipo: "velocidad", valor: val }));
+}
+
+const keyMap = {
+    "ArrowUp":    "key-up",
+    "ArrowDown":  "key-down",
+    "ArrowLeft":  "key-left",
+    "ArrowRight": "key-right"
+};
+
+document.addEventListener("keydown", (e) => {
+    if (!keyMap[e.key]) return;
+    if (e.repeat) return;
+    e.preventDefault();
+    document.getElementById(keyMap[e.key]).classList.add("active");
+
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        if (ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify({ tipo: "tecla", tecla: e.key }));
+    }
+
+    if (e.key === "ArrowLeft") {
+        if (ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify({ tipo: "giro", valor: 1.5 }));
+    }
+
+    if (e.key === "ArrowRight") {
+        if (ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify({ tipo: "giro", valor: -1.5 }));
+    }
+});
+
+document.addEventListener("keyup", (e) => {
+    if (!keyMap[e.key]) return;
+    document.getElementById(keyMap[e.key]).classList.remove("active");
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        if (ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify({ tipo: "giro", valor: 0.0 }));
+    }
+});
+
+function resetear() {
+    trayectoria = [];
+    if (ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ tipo: "reset" }));
+}
+
+function cambiarModo() {
+    const modo = document.getElementById("modo").value;
+    document.getElementById("panel-manual").style.display  = modo === "manual"     ? "block" : "none";
+    document.getElementById("panel-auto").style.display    = modo === "automatico" ? "block" : "none";
+}
+
+function enviarAutomatico() {
+    const x_fin     = parseFloat(document.getElementById("x-fin").value);
+    const y_fin     = parseFloat(document.getElementById("y-fin").value);
+    const theta_fin = parseFloat(document.getElementById("theta-fin").value);
+    if (ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ tipo: "automatico", x_fin, y_fin, theta_fin }));
+}
+
+conectar();
+</script>
+</body>
+</html>

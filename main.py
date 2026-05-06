@@ -1,0 +1,104 @@
+from fastapi import FastAPI, WebSocket
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+from dubins_car import DubinsCar
+from planner import DubinsPlanner
+from controller import Controller
+import json
+import math
+
+app = FastAPI()
+
+robot       = DubinsCar(x=0.0, y=0.0, theta=0.0)
+planner     = DubinsPlanner(radio_min=0.5)
+controller  = Controller()
+trayectoria = [(0.0, 0.0)]
+
+LIMITE = 25.0
+
+obstaculos = [
+    {"x": -14.0, "y": 12.0,  "w": 2.0,  "h": 12.0, "ang": -45},
+    {"x":  10.0, "y": 14.0,  "w": 12.0, "h": 4.0,  "ang":   0},
+    {"x": -5.0,  "y": -10.0, "w": 4.0,  "h": 8.0,  "ang":   0},
+    {"x":  10.0, "y": -10.0, "w": 8.0,  "h": 4.0,  "ang":   0},
+]
+
+def punto_en_rectangulo(px, py, obs):
+    ang = math.radians(obs["ang"])
+    dx  = px - obs["x"]
+    dy  = py - obs["y"]
+    lx  =  dx * math.cos(ang) + dy * math.sin(ang)
+    ly  = -dx * math.sin(ang) + dy * math.cos(ang)
+    return abs(lx) <= obs["w"] / 2 and abs(ly) <= obs["h"] / 2
+
+def verificar_colision(x, y):
+    if abs(x) >= LIMITE or abs(y) >= LIMITE:
+        return True
+    for obs in obstaculos:
+        if punto_en_rectangulo(x, y, obs):
+            return True
+    return False
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def root():
+    with open("static/index.html", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    global trayectoria
+    await websocket.accept()
+    try:
+        while True:
+            data    = await websocket.receive_text()
+            mensaje = json.loads(data)
+
+            if mensaje["tipo"] == "tecla":
+                if mensaje["tecla"] == "ArrowUp":
+                    controller.activar()
+                elif mensaje["tecla"] == "ArrowDown":
+                    controller.detener()
+
+            elif mensaje["tipo"] == "giro":
+                controller.set_giro(mensaje["valor"])
+
+            elif mensaje["tipo"] == "velocidad":
+                controller.set_velocidad(mensaje["valor"])
+
+            elif mensaje["tipo"] == "reset":
+                robot.reset(x=0.0, y=0.0, theta=0.0)
+                controller.reset()
+                trayectoria = [(0.0, 0.0)]
+
+            elif mensaje["tipo"] == "automatico":
+                tray = planner.planificar(
+                    robot.x, robot.y, robot.theta,
+                    mensaje["x_fin"], mensaje["y_fin"], mensaje["theta_fin"]
+                )
+                trayectoria = tray
+                ultimo      = tray[-1]
+                robot.reset(x=ultimo[0], y=ultimo[1], theta=mensaje["theta_fin"])
+
+            elif mensaje["tipo"] == "tick":
+                pass
+
+            v, w = controller.obtener_comandos()
+            robot.actualizar(v, w, dt=0.1)
+
+            if verificar_colision(robot.x, robot.y):
+                robot.reset(x=0.0, y=0.0, theta=0.0)
+                controller.reset()
+                trayectoria = [(0.0, 0.0)]
+
+            trayectoria.append((robot.x, robot.y))
+
+            estado = robot.obtener_estado()
+            estado["trayectoria"] = trayectoria[-300:]
+            estado["colision"]    = False
+
+            await websocket.send_text(json.dumps(estado))
+
+    except Exception as e:
+        print(f"Conexión cerrada: {e}")
