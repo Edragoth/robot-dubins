@@ -1,6 +1,7 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from dubins_car import DubinsCar
 from planner import DubinsPlanner
 from controller import Controller
@@ -8,6 +9,14 @@ import json
 import math
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 robot       = DubinsCar(x=0.0, y=0.0, theta=0.0)
 planner     = DubinsPlanner(radio_min=0.5)
