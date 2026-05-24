@@ -32,7 +32,7 @@ obstaculos_rect = [
 ]
 
 obstaculos_circ = [
-    {"x": -14.0, "y": 12.0, "r": 1.0},
+    {"x": -14.0, "y": 12.0, "r": 2.5},
 ]
 
 def punto_en_rectangulo(px, py, obs):
