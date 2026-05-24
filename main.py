@@ -25,11 +25,14 @@ trayectoria = [(0.0, 0.0)]
 
 LIMITE = 25.0
 
-obstaculos = [
-    {"x": -14.0, "y": 12.0,  "w": 2.0,  "h": 12.0, "ang": -45},
-    {"x":  10.0, "y": 14.0,  "w": 12.0, "h": 4.0,  "ang":   0},
-    {"x": -5.0,  "y": -10.0, "w": 4.0,  "h": 8.0,  "ang":   0},
-    {"x":  10.0, "y": -10.0, "w": 8.0,  "h": 4.0,  "ang":   0},
+obstaculos_rect = [
+    {"x":  10.0, "y": 14.0,  "w": 12.0, "h": 4.0,  "ang": 0},
+    {"x": -5.0,  "y": -10.0, "w": 4.0,  "h": 8.0,  "ang": 0},
+    {"x":  10.0, "y": -10.0, "w": 8.0,  "h": 4.0,  "ang": 0},
+]
+
+obstaculos_circ = [
+    {"x": -14.0, "y": 12.0, "r": 1.0},
 ]
 
 def punto_en_rectangulo(px, py, obs):
@@ -40,11 +43,19 @@ def punto_en_rectangulo(px, py, obs):
     ly  = -dx * math.sin(ang) + dy * math.cos(ang)
     return abs(lx) <= obs["w"] / 2 and abs(ly) <= obs["h"] / 2
 
+def punto_en_circulo(px, py, obs):
+    dx = px - obs["x"]
+    dy = py - obs["y"]
+    return math.sqrt(dx**2 + dy**2) <= obs["r"]
+
 def verificar_colision(x, y):
     if abs(x) >= LIMITE or abs(y) >= LIMITE:
         return True
-    for obs in obstaculos:
+    for obs in obstaculos_rect:
         if punto_en_rectangulo(x, y, obs):
+            return True
+    for obs in obstaculos_circ:
+        if punto_en_circulo(x, y, obs):
             return True
     return False
 

@@ -94,11 +94,14 @@ const W = canvas.width, H = canvas.height;
 const LIMITE = 25.0;
 const ESCALA = W / (LIMITE * 2);
 
-const obstaculos = [
-    { x: -14.0, y: 12.0,  w: 2.0,  h: 12.0, ang: -45 },
-    { x:  10.0, y: 14.0,  w: 12.0, h: 4.0,  ang:   0 },
-    { x: -5.0,  y: -10.0, w: 4.0,  h: 8.0,  ang:   0 },
-    { x:  10.0, y: -10.0, w: 8.0,  h: 4.0,  ang:   0 },
+const obstaculos_rect = [
+    { x:  10.0, y: 14.0,  w: 12.0, h: 4.0,  ang: 0 },
+    { x: -5.0,  y: -10.0, w: 4.0,  h: 8.0,  ang: 0 },
+    { x:  10.0, y: -10.0, w: 8.0,  h: 4.0,  ang: 0 },
+];
+
+const obstaculos_circ = [
+    { x: -14.0, y: 12.0, r: 1.0 },
 ];
 
 let ws;
@@ -137,15 +140,6 @@ function iniciarLoop() {
     }, 100);
 }
 
-function dibujarObstaculo(obs) {
-    const { cx, cy } = mundoACanvas(obs.x, obs.y);
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(-obs.ang * Math.PI / 180);
-    ctx.fillRect(-obs.w/2 * ESCALA, -obs.h/2 * ESCALA, obs.w * ESCALA, obs.h * ESCALA);
-    ctx.restore();
-}
-
 function dibujar() {
     ctx.clearRect(0, 0, W, H);
 
@@ -161,9 +155,22 @@ function dibujar() {
     ctx.lineWidth   = 4;
     ctx.strokeRect(2, 2, W-4, H-4);
 
-    obstaculos.forEach((obs, i) => {
-        ctx.fillStyle = i === 1 ? "#222" : "#2e7d9e";
-        dibujarObstaculo(obs);
+    obstaculos_rect.forEach((obs, i) => {
+        const { cx, cy } = mundoACanvas(obs.x, obs.y);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-obs.ang * Math.PI / 180);
+        ctx.fillStyle = i === 0 ? "#222" : "#2e7d9e";
+        ctx.fillRect(-obs.w/2 * ESCALA, -obs.h/2 * ESCALA, obs.w * ESCALA, obs.h * ESCALA);
+        ctx.restore();
+    });
+
+    obstaculos_circ.forEach(obs => {
+        const { cx, cy } = mundoACanvas(obs.x, obs.y);
+        ctx.beginPath();
+        ctx.arc(cx, cy, obs.r * ESCALA, 0, 2 * Math.PI);
+        ctx.fillStyle = "#2e7d9e";
+        ctx.fill();
     });
 
     if (trayectoria.length > 1) {
