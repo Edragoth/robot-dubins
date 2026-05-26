@@ -17,7 +17,6 @@
         .key { width: 48px; height: 48px; background: #333; border: 1px solid #555; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: pointer; transition: background 0.1s; user-select: none; }
         .key.active { background: #1a73e8; border-color: #1a73e8; }
         .key.vacio { background: transparent; border: none; cursor: default; }
-        .key:disabled, .key.bloqueado { opacity: 0.4; cursor: not-allowed; }
         button { background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 13px; width: 100%; }
         button:hover:not(:disabled) { background: #444; }
         button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -27,13 +26,14 @@
         input[type=range]:disabled { opacity: 0.4; cursor: not-allowed; }
         input[type=number] { background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; padding: 6px; font-size: 13px; width: 70px; text-align: center; }
         input[type=number]:disabled { opacity: 0.4; cursor: not-allowed; }
+        input, select, button { outline: none; }
+        canvas { outline: none; }
         .fila { display: flex; align-items: center; gap: 8px; }
         label { font-size: 12px; color: #aaa; }
         .colision-aviso { background: #c0392b; border-radius: 8px; padding: 10px; text-align: center; font-weight: bold; display: none; }
         .estado-robot { border-radius: 6px; padding: 6px 10px; font-size: 12px; text-align: center; font-weight: bold; }
-        .estado-detenido  { background: #2d6a2d; color: #7fff7f; }
-        .estado-moviendo  { background: #6a4a2d; color: #ffcc7f; }
-        .estado-calculando { background: #2d3d6a; color: #7fbfff; }
+        .estado-detenido   { background: #2d6a2d; color: #7fff7f; }
+        .estado-moviendo   { background: #6a4a2d; color: #ffcc7f; }
     </style>
 </head>
 <body>
@@ -130,28 +130,30 @@ function mundoACanvas(x, y) {
 
 function bloquearPanel() {
     robotActivo = true;
-    document.getElementById("modo").disabled        = true;
-    document.getElementById("vel-numero").disabled  = true;
-    document.getElementById("vel-slider").disabled  = true;
-    document.getElementById("x-fin").disabled       = true;
-    document.getElementById("y-fin").disabled       = true;
-    document.getElementById("theta-fin").disabled   = true;
+    document.getElementById("modo").disabled       = true;
+    document.getElementById("vel-numero").disabled = true;
+    document.getElementById("vel-slider").disabled = true;
+    document.getElementById("x-fin").disabled      = true;
+    document.getElementById("y-fin").disabled      = true;
+    document.getElementById("theta-fin").disabled  = true;
     const btnCalc = document.getElementById("btn-calcular");
     if (btnCalc) btnCalc.disabled = true;
 
     const estadoEl = document.getElementById("estado-robot");
     estadoEl.textContent = "▶ En movimiento";
     estadoEl.className   = "estado-robot estado-moviendo";
+
+    canvas.focus();
 }
 
 function desbloquearPanel() {
     robotActivo = false;
-    document.getElementById("modo").disabled        = false;
-    document.getElementById("vel-numero").disabled  = false;
-    document.getElementById("vel-slider").disabled  = false;
-    document.getElementById("x-fin").disabled       = false;
-    document.getElementById("y-fin").disabled       = false;
-    document.getElementById("theta-fin").disabled   = false;
+    document.getElementById("modo").disabled       = false;
+    document.getElementById("vel-numero").disabled = false;
+    document.getElementById("vel-slider").disabled = false;
+    document.getElementById("x-fin").disabled      = false;
+    document.getElementById("y-fin").disabled      = false;
+    document.getElementById("theta-fin").disabled  = false;
     const btnCalc = document.getElementById("btn-calcular");
     if (btnCalc) btnCalc.disabled = false;
 
@@ -292,16 +294,19 @@ const keyMap = {
 
 document.addEventListener("keydown", (e) => {
     if (!keyMap[e.key]) return;
-    if (e.repeat) return;
     e.preventDefault();
-
-    if (e.key === "ArrowUp" && robotActivo) return;
+    if (e.repeat) return;
 
     document.getElementById(keyMap[e.key]).classList.add("active");
 
-    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    if (e.key === "ArrowUp") {
+        if (!robotActivo && ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify({ tipo: "tecla", tecla: "ArrowUp" }));
+    }
+
+    if (e.key === "ArrowDown") {
         if (ws.readyState === WebSocket.OPEN)
-            ws.send(JSON.stringify({ tipo: "tecla", tecla: e.key }));
+            ws.send(JSON.stringify({ tipo: "tecla", tecla: "ArrowDown" }));
     }
 
     if (e.key === "ArrowLeft") {
@@ -317,6 +322,7 @@ document.addEventListener("keydown", (e) => {
 
 document.addEventListener("keyup", (e) => {
     if (!keyMap[e.key]) return;
+    e.preventDefault();
     document.getElementById(keyMap[e.key]).classList.remove("active");
 
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {

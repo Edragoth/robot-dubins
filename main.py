@@ -32,7 +32,7 @@ obstaculos_rect = [
 ]
 
 obstaculos_circ = [
-    {"x": -14.0, "y": 12.0, "r": 3.0},
+    {"x": -14.0, "y": 12.0, "r": 2.5},
 ]
 
 def punto_en_rectangulo(px, py, obs):
@@ -117,6 +117,7 @@ async def websocket_endpoint(websocket: WebSocket):
             estado = robot.obtener_estado()
             estado["trayectoria"] = trayectoria[-300:]
             estado["colision"]    = False
+            estado["activo"]      = controller.activo
 
             await websocket.send_text(json.dumps(estado))
 
