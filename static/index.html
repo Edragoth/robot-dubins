@@ -17,14 +17,23 @@
         .key { width: 48px; height: 48px; background: #333; border: 1px solid #555; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: pointer; transition: background 0.1s; user-select: none; }
         .key.active { background: #1a73e8; border-color: #1a73e8; }
         .key.vacio { background: transparent; border: none; cursor: default; }
+        .key:disabled, .key.bloqueado { opacity: 0.4; cursor: not-allowed; }
         button { background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 13px; width: 100%; }
-        button:hover { background: #444; }
+        button:hover:not(:disabled) { background: #444; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
         select { background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; padding: 6px; font-size: 13px; width: 100%; }
+        select:disabled { opacity: 0.4; cursor: not-allowed; }
         input[type=range] { width: 100%; accent-color: #1a73e8; }
+        input[type=range]:disabled { opacity: 0.4; cursor: not-allowed; }
         input[type=number] { background: #333; color: #fff; border: 1px solid #555; border-radius: 8px; padding: 6px; font-size: 13px; width: 70px; text-align: center; }
+        input[type=number]:disabled { opacity: 0.4; cursor: not-allowed; }
         .fila { display: flex; align-items: center; gap: 8px; }
         label { font-size: 12px; color: #aaa; }
         .colision-aviso { background: #c0392b; border-radius: 8px; padding: 10px; text-align: center; font-weight: bold; display: none; }
+        .estado-robot { border-radius: 6px; padding: 6px 10px; font-size: 12px; text-align: center; font-weight: bold; }
+        .estado-detenido  { background: #2d6a2d; color: #7fff7f; }
+        .estado-moviendo  { background: #6a4a2d; color: #ffcc7f; }
+        .estado-calculando { background: #2d3d6a; color: #7fbfff; }
     </style>
 </head>
 <body>
@@ -34,6 +43,8 @@
         <div class="panel">
 
             <div class="colision-aviso" id="aviso-colision">⚠️ Colisión — Robot reiniciado</div>
+
+            <div class="estado-robot estado-detenido" id="estado-robot">⏹ Detenido</div>
 
             <div class="caja">
                 <h3>Modo</h3>
@@ -70,7 +81,7 @@
                 <div class="fila"><label>Y:</label><input type="number" id="y-fin" value="5" step="0.5"></div>
                 <div class="fila"><label>θ:</label><input type="number" id="theta-fin" value="0" step="0.1"></div>
                 <br>
-                <button onclick="enviarAutomatico()">Calcular trayectoria</button>
+                <button id="btn-calcular" onclick="enviarAutomatico()">Calcular trayectoria</button>
             </div>
 
             <div class="caja">
@@ -82,7 +93,7 @@
                 <div class="estado-fila"><span>W</span><span id="s-w">0.000 rad/s</span></div>
             </div>
 
-            <button onclick="resetear()">Reiniciar robot</button>
+            <button id="btn-reiniciar" onclick="resetear()">Reiniciar robot</button>
 
         </div>
     </div>
@@ -101,19 +112,52 @@ const obstaculos_rect = [
 ];
 
 const obstaculos_circ = [
-    { x: -14.0, y: 12.0, r: 3.0 },
+    { x: -14.0, y: 12.0, r: 2.5 },
 ];
 
 let ws;
 let trayectoria  = [];
 let estadoActual = { x: 0, y: 0, theta: 0, v: 0, w: 0 };
 let loop;
+let robotActivo  = false;
 
 function mundoACanvas(x, y) {
     return {
         cx: W/2 + x * ESCALA,
         cy: H/2 - y * ESCALA
     };
+}
+
+function bloquearPanel() {
+    robotActivo = true;
+    document.getElementById("modo").disabled        = true;
+    document.getElementById("vel-numero").disabled  = true;
+    document.getElementById("vel-slider").disabled  = true;
+    document.getElementById("x-fin").disabled       = true;
+    document.getElementById("y-fin").disabled       = true;
+    document.getElementById("theta-fin").disabled   = true;
+    const btnCalc = document.getElementById("btn-calcular");
+    if (btnCalc) btnCalc.disabled = true;
+
+    const estadoEl = document.getElementById("estado-robot");
+    estadoEl.textContent = "▶ En movimiento";
+    estadoEl.className   = "estado-robot estado-moviendo";
+}
+
+function desbloquearPanel() {
+    robotActivo = false;
+    document.getElementById("modo").disabled        = false;
+    document.getElementById("vel-numero").disabled  = false;
+    document.getElementById("vel-slider").disabled  = false;
+    document.getElementById("x-fin").disabled       = false;
+    document.getElementById("y-fin").disabled       = false;
+    document.getElementById("theta-fin").disabled   = false;
+    const btnCalc = document.getElementById("btn-calcular");
+    if (btnCalc) btnCalc.disabled = false;
+
+    const estadoEl = document.getElementById("estado-robot");
+    estadoEl.textContent = "⏹ Detenido";
+    estadoEl.className   = "estado-robot estado-detenido";
 }
 
 function conectar() {
@@ -126,6 +170,10 @@ function conectar() {
         const data   = JSON.parse(e.data);
         estadoActual = data;
         trayectoria  = data.trayectoria || [];
+
+        if (data.activo && !robotActivo) bloquearPanel();
+        if (!data.activo && robotActivo) desbloquearPanel();
+
         dibujar();
         actualizarEstado();
         if (data.colision) mostrarColision();
@@ -246,6 +294,9 @@ document.addEventListener("keydown", (e) => {
     if (!keyMap[e.key]) return;
     if (e.repeat) return;
     e.preventDefault();
+
+    if (e.key === "ArrowUp" && robotActivo) return;
+
     document.getElementById(keyMap[e.key]).classList.add("active");
 
     if (e.key === "ArrowUp" || e.key === "ArrowDown") {
@@ -276,6 +327,7 @@ document.addEventListener("keyup", (e) => {
 
 function resetear() {
     trayectoria = [];
+    desbloquearPanel();
     if (ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ tipo: "reset" }));
 }
