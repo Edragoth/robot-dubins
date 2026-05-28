@@ -71,8 +71,8 @@ def precalcular_hjr():
     print("Iniciando precálculo Hamilton-Jacobi...")
     hjr_calculando = True
     try:
-        hjr = DubinsHJR(v=10.0, w_max=1.5)
-        hjr.calcular(N=(31, 31, 13), t_max=0.2, dt=0.05)
+        hjr = DubinsHJR(v=25.0, w_max=1.5)
+        hjr.calcular(N=(51, 51, 13), t_max=0.1, dt=0.02)
         hjr_instance  = hjr
         hjr_listo     = True
         print("Precálculo HJR completado.")
