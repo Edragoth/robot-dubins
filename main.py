@@ -5,8 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from dubins_car import DubinsCar
 from planner import DubinsPlanner
 from controller import Controller
+from hjr import DubinsHJR
 import json
 import math
+import asyncio
+import numpy as np
 
 app = FastAPI()
 
@@ -35,6 +38,10 @@ obstaculos_circ = [
     {"x": -14.0, "y": 12.0, "r": 2.5},
 ]
 
+hjr_instance   = None
+hjr_listo      = False
+hjr_calculando = False
+
 def punto_en_rectangulo(px, py, obs):
     ang = math.radians(obs["ang"])
     dx  = px - obs["x"]
@@ -59,12 +66,53 @@ def verificar_colision(x, y):
             return True
     return False
 
+def precalcular_hjr():
+    global hjr_instance, hjr_listo, hjr_calculando
+    print("Iniciando precálculo Hamilton-Jacobi...")
+    hjr_calculando = True
+    try:
+        hjr = DubinsHJR(v=10.0, w_max=1.5)
+        hjr.calcular(N=(31, 31, 13), t_max=0.2, dt=0.05)
+        hjr_instance  = hjr
+        hjr_listo     = True
+        print("Precálculo HJR completado.")
+    except Exception as e:
+        print(f"Error en precálculo HJR: {e}")
+    hjr_calculando = False
+
+@app.on_event("startup")
+async def startup_event():
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, precalcular_hjr)
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
     with open("static/index.html", encoding="utf-8") as f:
         return HTMLResponse(f.read())
+
+@app.get("/hjr_estado")
+async def hjr_estado():
+    return {
+        "listo":      hjr_listo,
+        "calculando": hjr_calculando
+    }
+
+@app.get("/hjr")
+async def calcular_hjr(theta: float = 0.0, v: float = 1.0, modo: str = "backward"):
+    if not hjr_listo:
+        return {"error": "HJR aún calculando, espera un momento"}
+
+    xs, ys, corte = hjr_instance.obtener_corte(theta)
+
+    return {
+        "xs":    xs.tolist(),
+        "ys":    ys.tolist(),
+        "corte": corte.tolist(),
+        "modo":  modo,
+        "theta": theta
+    }
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -118,6 +166,7 @@ async def websocket_endpoint(websocket: WebSocket):
             estado["trayectoria"] = trayectoria[-300:]
             estado["colision"]    = False
             estado["activo"]      = controller.activo
+            estado["hjr_listo"]   = hjr_listo
 
             await websocket.send_text(json.dumps(estado))
 

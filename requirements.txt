@@ -4,3 +4,5 @@ streamlit
 fastapi
 uvicorn
 websockets
+hj_reachability
+jax

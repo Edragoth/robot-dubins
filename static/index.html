@@ -34,6 +34,12 @@
         .estado-robot { border-radius: 6px; padding: 6px 10px; font-size: 12px; text-align: center; font-weight: bold; }
         .estado-detenido   { background: #2d6a2d; color: #7fff7f; }
         .estado-moviendo   { background: #6a4a2d; color: #ffcc7f; }
+        .estado-calculando { background: #2d3d6a; color: #7fbfff; }
+        .leyenda { display: flex; gap: 8px; align-items: center; font-size: 11px; margin-top: 6px; }
+        .leyenda-color { width: 16px; height: 16px; border-radius: 3px; }
+        .hjr-estado { font-size: 11px; color: #aaa; text-align: center; margin-top: 6px; }
+        .hjr-listo { color: #7fff7f; }
+        .hjr-calculando { color: #ffcc7f; }
     </style>
 </head>
 <body>
@@ -51,20 +57,19 @@
                 <select id="modo" onchange="cambiarModo()">
                     <option value="manual">Manual (teclado)</option>
                     <option value="automatico">Automático</option>
+                    <option value="hjr">Hamilton-Jacobi</option>
                 </select>
             </div>
 
-            <div class="caja">
+            <!-- Panel manual -->
+            <div class="caja" id="panel-manual">
                 <h3>Velocidad</h3>
                 <div class="fila">
                     <label>m/s</label>
                     <input type="number" id="vel-numero" value="1.0" min="0.1" max="5.0" step="0.1" onchange="sincronizarDesdeNumero()">
                 </div>
                 <input type="range" id="vel-slider" min="0.1" max="5.0" step="0.1" value="1.0" oninput="sincronizarDesdeSlider()">
-            </div>
-
-            <div class="caja" id="panel-manual">
-                <h3>Control</h3>
+                <h3 style="margin-top:10px;">Control</h3>
                 <div class="teclas">
                     <div class="key vacio"></div>
                     <div class="key" id="key-up">▲</div>
@@ -75,6 +80,7 @@
                 </div>
             </div>
 
+            <!-- Panel automático -->
             <div class="caja" id="panel-auto" style="display:none;">
                 <h3>Destino</h3>
                 <div class="fila"><label>X:</label><input type="number" id="x-fin" value="5" step="0.5"></div>
@@ -84,6 +90,42 @@
                 <button id="btn-calcular" onclick="enviarAutomatico()">Calcular trayectoria</button>
             </div>
 
+            <!-- Panel Hamilton-Jacobi -->
+            <div class="caja" id="panel-hjr" style="display:none;">
+                <h3>Hamilton-Jacobi</h3>
+
+                <div class="hjr-estado" id="hjr-estado-txt">⏳ Calculando en segundo plano...</div>
+
+                <div class="fila" style="margin-top:8px;">
+                    <label>Modo</label>
+                    <select id="hjr-modo" disabled>
+                        <option value="backward">Backward</option>
+                        <option value="forward">Forward</option>
+                    </select>
+                </div>
+                <div class="fila" style="margin-top:8px;">
+                    <label>V m/s</label>
+                    <input type="number" id="hjr-v" value="10.0" min="0.1" max="10.0" step="0.1" disabled>
+                </div>
+                <div style="margin-top:8px;">
+                    <label>Ángulo θ: <span id="hjr-theta-val">0°</span></label>
+                    <input type="range" id="hjr-theta-slider" min="-180" max="180" step="5" value="0" oninput="actualizarThetaHJR()" disabled>
+                    <div class="fila" style="margin-top:4px;">
+                        <label>°</label>
+                        <input type="number" id="hjr-theta-numero" value="0" min="-180" max="180" step="5" onchange="sincronizarThetaDesdeNumero()" disabled>
+                    </div>
+                </div>
+
+                <button id="btn-hjr" onclick="mostrarHJR()" style="margin-top:10px;" disabled>Mostrar conjunto</button>
+                <button id="btn-hjr-limpiar" onclick="limpiarHJR()" style="margin-top:6px;">Limpiar</button>
+
+                <div class="leyenda" style="margin-top:8px;">
+                    <div class="leyenda-color" style="background:rgba(231,76,60,0.6)"></div><span>Peligroso</span>
+                    <div class="leyenda-color" style="background:rgba(46,204,113,0.4)"></div><span>Seguro</span>
+                </div>
+            </div>
+
+            <!-- Estado del robot -->
             <div class="caja">
                 <h3>Estado del robot</h3>
                 <div class="estado-fila"><span>X</span><span id="s-x">0.000</span></div>
@@ -120,12 +162,42 @@ let trayectoria  = [];
 let estadoActual = { x: 0, y: 0, theta: 0, v: 0, w: 0 };
 let loop;
 let robotActivo  = false;
+let hjrData      = null;
+let hjrListo     = false;
+let hjrPollTimer = null;
+
+const baseUrl = window.location.hostname === "localhost"
+    ? "http://localhost:8000"
+    : "https://robot-dubins-production.up.railway.app";
 
 function mundoACanvas(x, y) {
     return {
         cx: W/2 + x * ESCALA,
         cy: H/2 - y * ESCALA
     };
+}
+
+function iniciarPollingHJR() {
+    hjrPollTimer = setInterval(async () => {
+        try {
+            const resp = await fetch(`${baseUrl}/hjr_estado`);
+            const data = await resp.json();
+            if (data.listo && !hjrListo) {
+                hjrListo = true;
+                clearInterval(hjrPollTimer);
+                habilitarPanelHJR();
+            }
+        } catch(e) {}
+    }, 5000);
+}
+
+function habilitarPanelHJR() {
+    document.getElementById("hjr-estado-txt").textContent = "✅ Listo para visualizar";
+    document.getElementById("hjr-estado-txt").className   = "hjr-estado hjr-listo";
+    document.getElementById("hjr-modo").disabled          = false;
+    document.getElementById("hjr-theta-slider").disabled  = false;
+    document.getElementById("hjr-theta-numero").disabled  = false;
+    document.getElementById("btn-hjr").disabled           = false;
 }
 
 function bloquearPanel() {
@@ -142,7 +214,6 @@ function bloquearPanel() {
     const estadoEl = document.getElementById("estado-robot");
     estadoEl.textContent = "▶ En movimiento";
     estadoEl.className   = "estado-robot estado-moviendo";
-
     canvas.focus();
 }
 
@@ -167,7 +238,7 @@ function conectar() {
         ? "ws://localhost:8000/ws"
         : "wss://robot-dubins-production.up.railway.app/ws";
     ws = new WebSocket(wsUrl);
-    ws.onopen    = () => { console.log("Conectado"); iniciarLoop(); };
+    ws.onopen    = () => { console.log("Conectado"); iniciarLoop(); iniciarPollingHJR(); };
     ws.onmessage = (e) => {
         const data   = JSON.parse(e.data);
         estadoActual = data;
@@ -175,6 +246,12 @@ function conectar() {
 
         if (data.activo && !robotActivo) bloquearPanel();
         if (!data.activo && robotActivo) desbloquearPanel();
+
+        if (data.hjr_listo && !hjrListo) {
+            hjrListo = true;
+            clearInterval(hjrPollTimer);
+            habilitarPanelHJR();
+        }
 
         dibujar();
         actualizarEstado();
@@ -188,6 +265,25 @@ function iniciarLoop() {
         if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ tipo: "tick" }));
     }, 100);
+}
+
+function dibujarHJR() {
+    if (!hjrData) return;
+    const { xs, ys, corte } = hjrData;
+    const nx = xs.length;
+    const ny = ys.length;
+    const dx = (W / nx) / 2 + 1;
+
+    for (let i = 0; i < nx; i++) {
+        for (let j = 0; j < ny; j++) {
+            const val        = corte[i][j];
+            const { cx, cy } = mundoACanvas(xs[i], ys[j]);
+            ctx.fillStyle    = val < 0
+                ? "rgba(231,76,60,0.6)"
+                : "rgba(46,204,113,0.25)";
+            ctx.fillRect(cx - dx, cy - dx, dx * 2, dx * 2);
+        }
+    }
 }
 
 function dibujar() {
@@ -204,6 +300,8 @@ function dibujar() {
     ctx.strokeStyle = "#222";
     ctx.lineWidth   = 4;
     ctx.strokeRect(2, 2, W-4, H-4);
+
+    dibujarHJR();
 
     obstaculos_rect.forEach((obs, i) => {
         const { cx, cy } = mundoACanvas(obs.x, obs.y);
@@ -285,6 +383,46 @@ function enviarVelocidad(val) {
         ws.send(JSON.stringify({ tipo: "velocidad", valor: val }));
 }
 
+function actualizarThetaHJR() {
+    const val = parseInt(document.getElementById("hjr-theta-slider").value);
+    document.getElementById("hjr-theta-numero").value    = val;
+    document.getElementById("hjr-theta-val").textContent = val + "°";
+}
+
+function sincronizarThetaDesdeNumero() {
+    let val = parseInt(document.getElementById("hjr-theta-numero").value);
+    val = Math.max(-180, Math.min(180, val));
+    document.getElementById("hjr-theta-slider").value    = val;
+    document.getElementById("hjr-theta-val").textContent = val + "°";
+}
+
+async function mostrarHJR() {
+    if (!hjrListo) return;
+
+    const btn   = document.getElementById("btn-hjr");
+    const theta = document.getElementById("hjr-theta-slider").value;
+    const modo  = document.getElementById("hjr-modo").value;
+
+    btn.disabled    = true;
+    btn.textContent = "Cargando...";
+
+    try {
+        const resp = await fetch(`${baseUrl}/hjr?theta=${theta}&v=10.0&modo=${modo}`);
+        hjrData = await resp.json();
+        dibujar();
+    } catch(e) {
+        console.error("Error cargando HJR:", e);
+    }
+
+    btn.disabled    = false;
+    btn.textContent = "Mostrar conjunto";
+}
+
+function limpiarHJR() {
+    hjrData = null;
+    dibujar();
+}
+
 const keyMap = {
     "ArrowUp":    "key-up",
     "ArrowDown":  "key-down",
@@ -333,15 +471,18 @@ document.addEventListener("keyup", (e) => {
 
 function resetear() {
     trayectoria = [];
+    hjrData     = null;
     desbloquearPanel();
     if (ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ tipo: "reset" }));
+    dibujar();
 }
 
 function cambiarModo() {
     const modo = document.getElementById("modo").value;
-    document.getElementById("panel-manual").style.display  = modo === "manual"     ? "block" : "none";
-    document.getElementById("panel-auto").style.display    = modo === "automatico" ? "block" : "none";
+    document.getElementById("panel-manual").style.display = modo === "manual"     ? "block" : "none";
+    document.getElementById("panel-auto").style.display   = modo === "automatico" ? "block" : "none";
+    document.getElementById("panel-hjr").style.display    = modo === "hjr"        ? "block" : "none";
 }
 
 function enviarAutomatico() {
