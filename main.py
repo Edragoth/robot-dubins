@@ -72,7 +72,7 @@ def precalcular_hjr():
     hjr_calculando = True
     try:
         hjr = DubinsHJR(speed=5.0, w_max=1.3)
-        hjr.calcular(N=(81, 81, 41), t_max=0.5, dt=0.05)
+        hjr.calcular(mat_path='brt_result.mat')
         hjr_instance  = hjr
         hjr_listo     = True
         print("Precálculo HJR completado.")
