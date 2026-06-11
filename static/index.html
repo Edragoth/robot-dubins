@@ -168,7 +168,7 @@ let hjrPollTimer = null;
 
 const baseUrl = window.location.hostname === "localhost"
     ? "http://localhost:8000"
-    : "https://robot-dubins-production.up.railway.app";
+    : "https://robot-dubins.onrender.com";
 
 function mundoACanvas(x, y) {
     return {
@@ -236,7 +236,7 @@ function desbloquearPanel() {
 function conectar() {
     const wsUrl = window.location.hostname === "localhost"
         ? "ws://localhost:8000/ws"
-        : "wss://robot-dubins-production.up.railway.app/ws";
+        : "wss://robot-dubins.onrender.com/ws";
     ws = new WebSocket(wsUrl);
     ws.onopen    = () => { console.log("Conectado"); iniciarLoop(); iniciarPollingHJR(); };
     ws.onmessage = (e) => {
