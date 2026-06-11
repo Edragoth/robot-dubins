@@ -8,7 +8,7 @@
         body { font-family: sans-serif; background: #1e1e1e; color: #fff; padding: 20px; }
         h1 { font-size: 20px; margin-bottom: 16px; }
         .contenedor { display: flex; gap: 20px; flex-wrap: wrap; }
-        canvas { background: #2a2a2a; border-radius: 8px; border: 1px solid #444; }
+        canvas { background: #f5f5f0; border-radius: 8px; border: 1px solid #ccc; }
         .panel { display: flex; flex-direction: column; gap: 14px; min-width: 220px; max-width: 260px; }
         .caja { background: #2a2a2a; border-radius: 8px; padding: 12px; font-size: 13px; }
         .caja h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
@@ -120,8 +120,8 @@
                 <button id="btn-hjr-limpiar" onclick="limpiarHJR()" style="margin-top:6px;">Limpiar</button>
 
                 <div class="leyenda" style="margin-top:8px;">
-                    <div class="leyenda-color" style="background:rgba(231,76,60,0.6)"></div><span>Peligroso</span>
-                    <div class="leyenda-color" style="background:rgba(46,204,113,0.4)"></div><span>Seguro</span>
+                    <div class="leyenda-color" style="background:rgba(220,20,20,0.8)"></div><span>Peligroso</span>
+                    <div class="leyenda-color" style="background:rgba(144,238,144,0.5)"></div><span>Seguro</span>
                 </div>
             </div>
 
@@ -210,7 +210,6 @@ function bloquearPanel() {
     document.getElementById("theta-fin").disabled  = true;
     const btnCalc = document.getElementById("btn-calcular");
     if (btnCalc) btnCalc.disabled = true;
-
     const estadoEl = document.getElementById("estado-robot");
     estadoEl.textContent = "▶ En movimiento";
     estadoEl.className   = "estado-robot estado-moviendo";
@@ -227,7 +226,6 @@ function desbloquearPanel() {
     document.getElementById("theta-fin").disabled  = false;
     const btnCalc = document.getElementById("btn-calcular");
     if (btnCalc) btnCalc.disabled = false;
-
     const estadoEl = document.getElementById("estado-robot");
     estadoEl.textContent = "⏹ Detenido";
     estadoEl.className   = "estado-robot estado-detenido";
@@ -243,16 +241,13 @@ function conectar() {
         const data   = JSON.parse(e.data);
         estadoActual = data;
         trayectoria  = data.trayectoria || [];
-
         if (data.activo && !robotActivo) bloquearPanel();
         if (!data.activo && robotActivo) desbloquearPanel();
-
         if (data.hjr_listo && !hjrListo) {
             hjrListo = true;
             clearInterval(hjrPollTimer);
             habilitarPanelHJR();
         }
-
         dibujar();
         actualizarEstado();
         if (data.colision) mostrarColision();
@@ -273,7 +268,7 @@ function dibujarHJR() {
     const nx = xs.length;
     const ny = ys.length;
 
-    // Dibujo suave con interpolación bilineal pixel a pixel
+    // Dibujo suave con interpolación bilineal
     const imageData = ctx.createImageData(W, H);
     const data = imageData.data;
 
@@ -309,48 +304,73 @@ function dibujarHJR() {
                 data[idx4+3] = alpha;
             } else {
                 // Zona segura — verde claro tenue
-                const alpha = 50;
                 data[idx4]   = 144;
                 data[idx4+1] = 238;
                 data[idx4+2] = 144;
-                data[idx4+3] = alpha;
+                data[idx4+3] = 50;
             }
         }
     }
     ctx.putImageData(imageData, 0, 0);
-    dibujarContornoBRT();
-}
 
-function dibujarContornoBRT() {
-    if (!hjrData) return;
-    const { xs, ys, corte } = hjrData;
-    const nx = xs.length;
-    const ny = ys.length;
+    // Contorno suave del BRT — línea continua en vez de puntitos
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(160, 0, 0, 0.9)";
+    ctx.lineWidth   = 1.5;
 
-    ctx.fillStyle = "rgba(180, 0, 0, 0.95)";
-
+    // Usar el canvas para trazar el contorno del nivel cero
+    // via una pasada por las celdas con cambio de signo
+    const { xs: xsArr, ys: ysArr } = hjrData;
     for (let i = 0; i < nx - 1; i++) {
         for (let j = 0; j < ny - 1; j++) {
-            const v00 = corte[i][j], v10 = corte[i+1][j];
+            const v00 = corte[i][j],   v10 = corte[i+1][j];
             const v01 = corte[i][j+1], v11 = corte[i+1][j+1];
-
-            const tieneNeg = v00 < 0 || v10 < 0 || v01 < 0 || v11 < 0;
-            const tienePos = v00 >= 0 || v10 >= 0 || v01 >= 0 || v11 >= 0;
-
-            if (tieneNeg && tienePos) {
-                const xMid = (xs[i] + xs[i+1]) / 2;
-                const yMid = (ys[j] + ys[j+1]) / 2;
-                const { cx, cy } = mundoACanvas(xMid, yMid);
-                ctx.fillRect(cx - 1, cy - 1, 2, 2);
+            const neg = (v00 < 0) + (v10 < 0) + (v01 < 0) + (v11 < 0);
+            if (neg > 0 && neg < 4) {
+                // Interpolación lineal del cruce de nivel cero en X
+                if ((v00 < 0) !== (v10 < 0)) {
+                    const t = v00 / (v00 - v10);
+                    const wx = xs[i] + t * (xs[i+1] - xs[i]);
+                    const wy = ys[j];
+                    const {cx, cy} = mundoACanvas(wx, wy);
+                    ctx.moveTo(cx - 1, cy);
+                    ctx.lineTo(cx + 1, cy);
+                }
+                if ((v01 < 0) !== (v11 < 0)) {
+                    const t = v01 / (v01 - v11);
+                    const wx = xs[i] + t * (xs[i+1] - xs[i]);
+                    const wy = ys[j+1];
+                    const {cx, cy} = mundoACanvas(wx, wy);
+                    ctx.moveTo(cx - 1, cy);
+                    ctx.lineTo(cx + 1, cy);
+                }
+                // Interpolación en Y
+                if ((v00 < 0) !== (v01 < 0)) {
+                    const t = v00 / (v00 - v01);
+                    const wx = xs[i];
+                    const wy = ys[j] + t * (ys[j+1] - ys[j]);
+                    const {cx, cy} = mundoACanvas(wx, wy);
+                    ctx.moveTo(cx, cy - 1);
+                    ctx.lineTo(cx, cy + 1);
+                }
+                if ((v10 < 0) !== (v11 < 0)) {
+                    const t = v10 / (v10 - v11);
+                    const wx = xs[i+1];
+                    const wy = ys[j] + t * (ys[j+1] - ys[j]);
+                    const {cx, cy} = mundoACanvas(wx, wy);
+                    ctx.moveTo(cx, cy - 1);
+                    ctx.lineTo(cx, cy + 1);
+                }
             }
         }
     }
+    ctx.stroke();
 }
 
 function dibujar() {
     ctx.clearRect(0, 0, W, H);
 
-    // Fondo
+    // Fondo claro
     ctx.fillStyle = "#f5f5f0";
     ctx.fillRect(0, 0, W, H);
 
@@ -467,14 +487,11 @@ function sincronizarThetaDesdeNumero() {
 
 async function mostrarHJR() {
     if (!hjrListo) return;
-
     const btn   = document.getElementById("btn-hjr");
     const theta = document.getElementById("hjr-theta-slider").value;
     const modo  = document.getElementById("hjr-modo").value;
-
     btn.disabled    = true;
     btn.textContent = "Cargando...";
-
     try {
         const resp = await fetch(`${baseUrl}/hjr?theta=${theta}&v=5.0&modo=${modo}`);
         hjrData = await resp.json();
@@ -482,7 +499,6 @@ async function mostrarHJR() {
     } catch(e) {
         console.error("Error cargando HJR:", e);
     }
-
     btn.disabled    = false;
     btn.textContent = "Mostrar conjunto";
 }
@@ -503,9 +519,7 @@ document.addEventListener("keydown", (e) => {
     if (!keyMap[e.key]) return;
     e.preventDefault();
     if (e.repeat) return;
-
     document.getElementById(keyMap[e.key]).classList.add("active");
-
     if (e.key === "ArrowUp") {
         if (!robotActivo && ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ tipo: "tecla", tecla: "ArrowUp" }));
@@ -528,7 +542,6 @@ document.addEventListener("keyup", (e) => {
     if (!keyMap[e.key]) return;
     e.preventDefault();
     document.getElementById(keyMap[e.key]).classList.remove("active");
-
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ tipo: "giro", valor: 0.0 }));
