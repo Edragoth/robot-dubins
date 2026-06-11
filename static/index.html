@@ -105,7 +105,7 @@
                 </div>
                 <div class="fila" style="margin-top:8px;">
                     <label>V m/s</label>
-                    <input type="number" id="hjr-v" value="25.0" min="0.1" max="25.0" step="0.1" disabled>
+                    <input type="number" id="hjr-v" value="5.0" min="0.1" max="5.0" step="0.1" disabled>
                 </div>
                 <div style="margin-top:8px;">
                     <label>Ángulo θ: <span id="hjr-theta-val">0°</span></label>
@@ -272,16 +272,77 @@ function dibujarHJR() {
     const { xs, ys, corte } = hjrData;
     const nx = xs.length;
     const ny = ys.length;
-    const dx = (W / nx) / 2 + 1;
 
-    for (let i = 0; i < nx; i++) {
-        for (let j = 0; j < ny; j++) {
-            const val        = corte[i][j];
-            const { cx, cy } = mundoACanvas(xs[i], ys[j]);
-            ctx.fillStyle    = val < 0
-                ? "rgba(231,76,60,0.6)"
-                : "rgba(46,204,113,0.25)";
-            ctx.fillRect(cx - dx, cy - dx, dx * 2, dx * 2);
+    // Dibujo suave con interpolación bilineal pixel a pixel
+    const imageData = ctx.createImageData(W, H);
+    const data = imageData.data;
+
+    for (let px = 0; px < W; px++) {
+        for (let py = 0; py < H; py++) {
+            const wx =  (px - W/2) / ESCALA;
+            const wy = -(py - H/2) / ESCALA;
+
+            const xMin = xs[0], xMax = xs[nx-1];
+            const yMin = ys[0], yMax = ys[ny-1];
+
+            const fi = (wx - xMin) / (xMax - xMin) * (nx - 1);
+            const fj = (wy - yMin) / (yMax - yMin) * (ny - 1);
+
+            const i0 = Math.max(0, Math.min(nx-2, Math.floor(fi)));
+            const j0 = Math.max(0, Math.min(ny-2, Math.floor(fj)));
+            const i1 = i0 + 1, j1 = j0 + 1;
+            const tx = fi - i0, ty = fj - j0;
+
+            const v00 = corte[i0][j0], v10 = corte[i1][j0];
+            const v01 = corte[i0][j1], v11 = corte[i1][j1];
+            const val = (1-tx)*(1-ty)*v00 + tx*(1-ty)*v10
+                      + (1-tx)*ty*v01     + tx*ty*v11;
+
+            const idx4 = (py * W + px) * 4;
+            if (val < 0) {
+                // Zona peligrosa — rojo fuerte
+                const intensidad = Math.min(1.0, Math.abs(val) / 2.5);
+                const alpha = Math.round((0.55 + intensidad * 0.45) * 255);
+                data[idx4]   = 220;
+                data[idx4+1] = 20;
+                data[idx4+2] = 20;
+                data[idx4+3] = alpha;
+            } else {
+                // Zona segura — verde claro tenue
+                const alpha = 50;
+                data[idx4]   = 144;
+                data[idx4+1] = 238;
+                data[idx4+2] = 144;
+                data[idx4+3] = alpha;
+            }
+        }
+    }
+    ctx.putImageData(imageData, 0, 0);
+    dibujarContornoBRT();
+}
+
+function dibujarContornoBRT() {
+    if (!hjrData) return;
+    const { xs, ys, corte } = hjrData;
+    const nx = xs.length;
+    const ny = ys.length;
+
+    ctx.fillStyle = "rgba(180, 0, 0, 0.95)";
+
+    for (let i = 0; i < nx - 1; i++) {
+        for (let j = 0; j < ny - 1; j++) {
+            const v00 = corte[i][j], v10 = corte[i+1][j];
+            const v01 = corte[i][j+1], v11 = corte[i+1][j+1];
+
+            const tieneNeg = v00 < 0 || v10 < 0 || v01 < 0 || v11 < 0;
+            const tienePos = v00 >= 0 || v10 >= 0 || v01 >= 0 || v11 >= 0;
+
+            if (tieneNeg && tienePos) {
+                const xMid = (xs[i] + xs[i+1]) / 2;
+                const yMid = (ys[j] + ys[j+1]) / 2;
+                const { cx, cy } = mundoACanvas(xMid, yMid);
+                ctx.fillRect(cx - 1, cy - 1, 2, 2);
+            }
         }
     }
 }
@@ -289,20 +350,25 @@ function dibujarHJR() {
 function dibujar() {
     ctx.clearRect(0, 0, W, H);
 
+    // Fondo
     ctx.fillStyle = "#f5f5f0";
     ctx.fillRect(0, 0, W, H);
 
+    // Grilla
     ctx.strokeStyle = "rgba(0,0,0,0.08)";
     ctx.lineWidth   = 0.5;
     for (let x = 0; x < W; x += ESCALA * 5) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
     for (let y = 0; y < H; y += ESCALA * 5) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
 
+    // Borde
     ctx.strokeStyle = "#222";
     ctx.lineWidth   = 4;
     ctx.strokeRect(2, 2, W-4, H-4);
 
+    // HJR primero (debajo de los obstáculos)
     dibujarHJR();
 
+    // Obstáculos rectangulares
     obstaculos_rect.forEach((obs, i) => {
         const { cx, cy } = mundoACanvas(obs.x, obs.y);
         ctx.save();
@@ -313,6 +379,7 @@ function dibujar() {
         ctx.restore();
     });
 
+    // Obstáculos circulares
     obstaculos_circ.forEach(obs => {
         const { cx, cy } = mundoACanvas(obs.x, obs.y);
         ctx.beginPath();
@@ -321,6 +388,7 @@ function dibujar() {
         ctx.fill();
     });
 
+    // Trayectoria
     if (trayectoria.length > 1) {
         ctx.beginPath();
         ctx.strokeStyle = "#e74c3c";
@@ -334,6 +402,7 @@ function dibujar() {
         ctx.stroke();
     }
 
+    // Robot
     const { cx, cy } = mundoACanvas(estadoActual.x, estadoActual.y);
     const theta = estadoActual.theta;
     const largo = 14;
@@ -407,7 +476,7 @@ async function mostrarHJR() {
     btn.textContent = "Cargando...";
 
     try {
-        const resp = await fetch(`${baseUrl}/hjr?theta=${theta}&v=10.0&modo=${modo}`);
+        const resp = await fetch(`${baseUrl}/hjr?theta=${theta}&v=5.0&modo=${modo}`);
         hjrData = await resp.json();
         dibujar();
     } catch(e) {
@@ -441,17 +510,14 @@ document.addEventListener("keydown", (e) => {
         if (!robotActivo && ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ tipo: "tecla", tecla: "ArrowUp" }));
     }
-
     if (e.key === "ArrowDown") {
         if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ tipo: "tecla", tecla: "ArrowDown" }));
     }
-
     if (e.key === "ArrowLeft") {
         if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ tipo: "giro", valor: 1.5 }));
     }
-
     if (e.key === "ArrowRight") {
         if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ tipo: "giro", valor: -1.5 }));

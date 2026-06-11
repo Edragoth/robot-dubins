@@ -1,157 +1,74 @@
 import numpy as np
-import jax.numpy as jnp
-import hj_reachability as hj
-
+import h5py
+ 
+ 
 class DubinsHJR:
     """
-    Calcula conjuntos alcanzables para un Dubins Car
-    usando Hamilton-Jacobi Reachability.
-    Estado: (x, y, theta)
+    Carga el BRT pre-calculado desde MATLAB (brt_result.mat)
+    y lo sirve para visualización.
     """
-
-    def __init__(self, v=1.0, w_max=1.5):
-        self.v      = v
+ 
+    def __init__(self, speed=5.0, w_max=1.3):
+        self.speed  = speed
         self.w_max  = w_max
-        self.grid   = None
-        self.values = None
+        self.data   = None
+        self.xs     = None
+        self.ys     = None
+        self.thetas = None
         self.tau    = None
-
-    def calcular(self,
-                 grid_min=(-25.0, -25.0, -np.pi),
-                 grid_max=( 25.0,  25.0,  np.pi),
-                 N=(31, 31, 13),
-                 t_max=1.0,
-                 dt=0.1,
-                 modo="backward"):
-
-        grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
-            hj.sets.Box(
-                lo=jnp.array(grid_min),
-                hi=jnp.array(grid_max)
-            ),
-            N,
-            periodic_dims=2
-        )
-
-        values = self._funcion_inicial(grid)
-        tau    = np.arange(0, t_max + dt, dt)
-
-        dynamics = DubinsCarDynamics(v=self.v, w_max=self.w_max)
-
-        solver_settings = hj.SolverSettings.with_accuracy(
-            "medium"
-        )
-
-        result = hj.solve(
-            solver_settings,
-            dynamics,
-            grid,
-            tau,
-            values,
-            progress_bar=False
-        )
-
-        self.grid   = grid
-        self.values = result
-        self.tau    = tau
-
-        return grid, result
-
-    def _funcion_inicial(self, grid):
-        x = grid.states[..., 0]
-        y = grid.states[..., 1]
-
-        # SDF del muro perimetral
-        dist_muro = jnp.minimum(
-            jnp.minimum(x - (-25.0), 25.0 - x),
-            jnp.minimum(y - (-25.0), 25.0 - y)
-        )
-        values = dist_muro
-
-        # Obstáculos rectangulares — SDF negativo dentro
-        obstaculos_rect = [
-            {"x":  10.0, "y": 14.0,  "w": 12.0, "h": 4.0},
-            {"x": -5.0,  "y": -10.0, "w": 4.0,  "h": 8.0},
-            {"x":  10.0, "y": -10.0, "w": 8.0,  "h": 4.0},
-        ]
-
-        for obs in obstaculos_rect:
-            dx     = jnp.abs(x - obs["x"]) - obs["w"] / 2
-            dy     = jnp.abs(y - obs["y"]) - obs["h"] / 2
-            dist   = jnp.maximum(dx, dy)
-            values = jnp.minimum(values, dist)
-
-        # Obstáculo circular — SDF negativo dentro
-        obstaculos_circ = [
-            {"x": -14.0, "y": 12.0, "r": 2.5},
-        ]
-
-        for obs in obstaculos_circ:
-            dist   = jnp.sqrt((x - obs["x"])**2 + (y - obs["y"])**2) - obs["r"]
-            values = jnp.minimum(values, dist)
-
-        return values
-
+ 
+    def calcular(self, mat_path='brt_result.mat', **kwargs):
+        print(f"Cargando BRT desde {mat_path}...")
+ 
+        with h5py.File(mat_path, 'r') as f:
+            # Imprimir estructura para diagnóstico
+            print("  Claves en el archivo:")
+            def print_keys(name, obj):
+                print(f"    {name}: shape={getattr(obj, 'shape', 'grupo')}")
+            f.visititems(print_keys)
+ 
+            # Cargar data y tau
+            data_raw = f['data'][:]    # MATLAB (Nx,Ny,Ntheta,T) → h5py (T,Ntheta,Ny,Nx)
+            tau_raw  = f['tau2'][:]
+ 
+            # Cargar parámetros de grilla — manejar distintas formas
+            g_min = np.array(f['g_export']['min']).flatten()
+            g_max = np.array(f['g_export']['max']).flatten()
+            g_N   = np.array(f['g_export']['N']).flatten().astype(int)
+ 
+        print(f"  data_raw shape: {data_raw.shape}")
+        print(f"  g_min: {g_min}")
+        print(f"  g_max: {g_max}")
+        print(f"  g_N:   {g_N}")
+ 
+        # h5py transpone MATLAB: reordenar a (T, Nx, Ny, Ntheta)
+        data = np.transpose(data_raw, (0, 3, 2, 1))
+ 
+        Nx, Ny, Ntheta = g_N[0], g_N[1], g_N[2]
+ 
+        self.xs     = np.linspace(g_min[0], g_max[0], Nx)
+        self.ys     = np.linspace(g_min[1], g_max[1], Ny)
+        self.thetas = np.linspace(g_min[2], g_max[2], Ntheta)
+        self.tau    = tau_raw.flatten()
+        self.data   = data
+ 
+        print(f"  data shape final: {data.shape}")
+        print(f"  val t=0:   min={data[0].min():.3f}, max={data[0].max():.3f}")
+        print(f"  val t=end: min={data[-1].min():.3f}, max={data[-1].max():.3f}")
+        print("BRT cargado correctamente.")
+ 
+        return self.xs, data
+ 
     def obtener_corte(self, theta_deg):
         theta_rad = np.radians(theta_deg)
-        N_theta   = self.grid.shape[2]
-        theta_min = -np.pi
-        theta_max =  np.pi
-        idx = int((theta_rad - theta_min) / (theta_max - theta_min) * (N_theta - 1))
-        idx = np.clip(idx, 0, N_theta - 1)
-
-        corte = np.array(self.values[-1, :, :, idx])
-        xs    = np.array(self.grid.states[:, 0, 0, 0])
-        ys    = np.array(self.grid.states[0, :, 0, 1])
-
-        return xs, ys, corte
-
-
-class DubinsCarDynamics(hj.ControlAndDisturbanceAffineDynamics):
-    """
-    Sistema dinámico del Dubins Car.
-    dx/dt     = v * cos(theta)
-    dy/dt     = v * sin(theta)
-    dtheta/dt = w
-    """
-
-    control_mode     = "min"
-    disturbance_mode = "max"
-
-    def __init__(self, v=1.0, w_max=1.5):
-        self.v     = v
-        self.w_max = w_max
-
-    def open_loop_dynamics(self, state, time):
-        x, y, theta = state[..., 0], state[..., 1], state[..., 2]
-        return jnp.stack([
-            self.v * jnp.cos(theta),
-            self.v * jnp.sin(theta),
-            jnp.zeros_like(theta)
-        ], axis=-1)
-
-    def control_jacobian(self, state, time):
-        n = state.shape[:-1]
-        return jnp.stack([
-            jnp.zeros(n),
-            jnp.zeros(n),
-            jnp.ones(n)
-        ], axis=-1)[..., jnp.newaxis]
-
-    def disturbance_jacobian(self, state, time):
-        n = state.shape[:-1]
-        return jnp.zeros(n + (3, 1))
-
-    @property
-    def control_space(self):
-        return hj.sets.Box(
-            lo=jnp.array([-self.w_max]),
-            hi=jnp.array([ self.w_max])
-        )
-
-    @property
-    def disturbance_space(self):
-        return hj.sets.Box(
-            lo=jnp.array([0.0]),
-            hi=jnp.array([0.0])
-        )
+        idx = int(np.argmin(np.abs(self.thetas - theta_rad)))
+        idx = np.clip(idx, 0, len(self.thetas) - 1)
+ 
+        corte = self.data[-1, :, :, idx]
+ 
+        print(f"=== Corte θ={theta_deg}° (idx={idx}, θ_real={np.degrees(self.thetas[idx]):.1f}°) ===")
+        print(f"  min={corte.min():.3f}, max={corte.max():.3f}")
+        print(f"  % negativo (peligroso): {(corte < 0).mean()*100:.1f}%")
+        print("====================================")
+ 
+        return self.xs, self.ys, corte
