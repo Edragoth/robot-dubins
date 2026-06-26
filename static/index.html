@@ -34,12 +34,11 @@
         .estado-robot { border-radius: 6px; padding: 6px 10px; font-size: 12px; text-align: center; font-weight: bold; }
         .estado-detenido   { background: #2d6a2d; color: #7fff7f; }
         .estado-moviendo   { background: #6a4a2d; color: #ffcc7f; }
-        .estado-calculando { background: #2d3d6a; color: #7fbfff; }
         .leyenda { display: flex; gap: 8px; align-items: center; font-size: 11px; margin-top: 6px; }
         .leyenda-color { width: 16px; height: 16px; border-radius: 3px; }
-        .hjr-estado { font-size: 11px; color: #aaa; text-align: center; margin-top: 6px; }
+        .hjr-estado { font-size: 11px; color: #aaa; text-align: center; margin-top: 4px; }
         .hjr-listo { color: #7fff7f; }
-        .hjr-calculando { color: #ffcc7f; }
+        .peligro-aviso { background: #8b0000; border-radius: 8px; padding: 8px; text-align: center; font-weight: bold; font-size: 12px; display: none; }
     </style>
 </head>
 <body>
@@ -49,6 +48,7 @@
         <div class="panel">
 
             <div class="colision-aviso" id="aviso-colision">⚠️ Colisión — Robot reiniciado</div>
+            <div class="peligro-aviso"  id="aviso-peligro">⚠️ Estado peligroso</div>
 
             <div class="estado-robot estado-detenido" id="estado-robot">⏹ Detenido</div>
 
@@ -57,19 +57,16 @@
                 <select id="modo" onchange="cambiarModo()">
                     <option value="manual">Manual (teclado)</option>
                     <option value="automatico">Automático</option>
-                    <option value="hjr">Hamilton-Jacobi</option>
                 </select>
             </div>
 
             <!-- Panel manual -->
             <div class="caja" id="panel-manual">
-                <h3>Velocidad</h3>
-                <div class="fila">
-                    <label>m/s</label>
-                    <input type="number" id="vel-numero" value="1.0" min="0.1" max="5.0" step="0.1" onchange="sincronizarDesdeNumero()">
+                <h3>Control</h3>
+                <div class="fila" style="margin-bottom:8px;">
+                    <label>V fija:</label>
+                    <span style="color:#7fff7f; font-weight:bold;">5.0 m/s</span>
                 </div>
-                <input type="range" id="vel-slider" min="0.1" max="5.0" step="0.1" value="1.0" oninput="sincronizarDesdeSlider()">
-                <h3 style="margin-top:10px;">Control</h3>
                 <div class="teclas">
                     <div class="key vacio"></div>
                     <div class="key" id="key-up">▲</div>
@@ -77,6 +74,11 @@
                     <div class="key" id="key-left">◀</div>
                     <div class="key" id="key-down">▼</div>
                     <div class="key" id="key-right">▶</div>
+                </div>
+                <div class="hjr-estado" id="hjr-estado-txt" style="margin-top:10px;">⏳ Cargando BRT...</div>
+                <div class="leyenda" style="margin-top:8px;">
+                    <div class="leyenda-color" style="background:rgba(220,20,20,0.8)"></div><span>Peligroso</span>
+                    <div class="leyenda-color" style="background:rgba(144,238,144,0.5)"></div><span>Seguro</span>
                 </div>
             </div>
 
@@ -90,41 +92,6 @@
                 <button id="btn-calcular" onclick="enviarAutomatico()">Calcular trayectoria</button>
             </div>
 
-            <!-- Panel Hamilton-Jacobi -->
-            <div class="caja" id="panel-hjr" style="display:none;">
-                <h3>Hamilton-Jacobi</h3>
-
-                <div class="hjr-estado" id="hjr-estado-txt">⏳ Calculando en segundo plano...</div>
-
-                <div class="fila" style="margin-top:8px;">
-                    <label>Modo</label>
-                    <select id="hjr-modo" disabled>
-                        <option value="backward">Backward</option>
-                        <option value="forward">Forward</option>
-                    </select>
-                </div>
-                <div class="fila" style="margin-top:8px;">
-                    <label>V m/s</label>
-                    <input type="number" id="hjr-v" value="5.0" min="0.1" max="5.0" step="0.1" disabled>
-                </div>
-                <div style="margin-top:8px;">
-                    <label>Ángulo θ: <span id="hjr-theta-val">0°</span></label>
-                    <input type="range" id="hjr-theta-slider" min="-180" max="180" step="5" value="0" oninput="actualizarThetaHJR()" disabled>
-                    <div class="fila" style="margin-top:4px;">
-                        <label>°</label>
-                        <input type="number" id="hjr-theta-numero" value="0" min="-180" max="180" step="5" onchange="sincronizarThetaDesdeNumero()" disabled>
-                    </div>
-                </div>
-
-                <button id="btn-hjr" onclick="mostrarHJR()" style="margin-top:10px;" disabled>Mostrar conjunto</button>
-                <button id="btn-hjr-limpiar" onclick="limpiarHJR()" style="margin-top:6px;">Limpiar</button>
-
-                <div class="leyenda" style="margin-top:8px;">
-                    <div class="leyenda-color" style="background:rgba(220,20,20,0.8)"></div><span>Peligroso</span>
-                    <div class="leyenda-color" style="background:rgba(144,238,144,0.5)"></div><span>Seguro</span>
-                </div>
-            </div>
-
             <!-- Estado del robot -->
             <div class="caja">
                 <h3>Estado del robot</h3>
@@ -133,6 +100,7 @@
                 <div class="estado-fila"><span>Ángulo</span><span id="s-theta">0.0°</span></div>
                 <div class="estado-fila"><span>V</span><span id="s-v">0.000 m/s</span></div>
                 <div class="estado-fila"><span>W</span><span id="s-w">0.000 rad/s</span></div>
+                <div class="estado-fila"><span>BRT valor</span><span id="s-brt" style="font-weight:bold;">—</span></div>
             </div>
 
             <button id="btn-reiniciar" onclick="resetear()">Reiniciar robot</button>
@@ -144,15 +112,15 @@
 const canvas = document.getElementById("canvas");
 const ctx    = canvas.getContext("2d");
 const W = canvas.width, H = canvas.height;
-const LIMITE = 25.0;
+const LIMITE = 20.0;
 const ESCALA = W / (LIMITE * 2);
+const V_FIJA = 5.0;
 
 const obstaculos_rect = [
     { x:  10.0, y: 14.0,  w: 12.0, h: 4.0,  ang: 0 },
     { x: -5.0,  y: -10.0, w: 4.0,  h: 8.0,  ang: 0 },
     { x:  10.0, y: -10.0, w: 8.0,  h: 4.0,  ang: 0 },
 ];
-
 const obstaculos_circ = [
     { x: -14.0, y: 12.0, r: 2.5 },
 ];
@@ -166,15 +134,51 @@ let hjrData      = null;
 let hjrListo     = false;
 let hjrPollTimer = null;
 
+// Control del BRT dinámico
+let thetaUltimoFetch = null;  // último ángulo (redondeado a 5°) que se fetcheó
+let fetchEnCurso     = false;
+
 const baseUrl = window.location.hostname === "localhost"
     ? "http://localhost:8000"
     : "https://robot-dubins.onrender.com";
 
 function mundoACanvas(x, y) {
-    return {
-        cx: W/2 + x * ESCALA,
-        cy: H/2 - y * ESCALA
-    };
+    return { cx: W/2 + x * ESCALA, cy: H/2 - y * ESCALA };
+}
+
+// Redondear ángulo al múltiplo de 5° más cercano
+function redondearTheta(thetaRad) {
+    const deg = thetaRad * 180 / Math.PI;
+    return Math.round(deg / 5) * 5;
+}
+
+// Interpolar valor BRT en la posición actual del robot
+function valorBRTenPosicion(x, y) {
+    if (!hjrData) return null;
+    const { xs, ys, corte } = hjrData;
+    const nx = xs.length, ny = ys.length;
+    const xMin = xs[0], xMax = xs[nx-1];
+    const yMin = ys[0], yMax = ys[ny-1];
+    const fi = (x - xMin) / (xMax - xMin) * (nx - 1);
+    const fj = (y - yMin) / (yMax - yMin) * (ny - 1);
+    const i0 = Math.max(0, Math.min(nx-2, Math.floor(fi)));
+    const j0 = Math.max(0, Math.min(ny-2, Math.floor(fj)));
+    const tx = fi - i0, ty = fj - j0;
+    const v00 = corte[i0][j0],   v10 = corte[i0+1][j0];
+    const v01 = corte[i0][j0+1], v11 = corte[i0+1][j0+1];
+    return (1-tx)*(1-ty)*v00 + tx*(1-ty)*v10 + (1-tx)*ty*v01 + tx*ty*v11;
+}
+
+async function actualizarBRT(thetaDeg) {
+    if (fetchEnCurso) return;
+    fetchEnCurso = true;
+    try {
+        const resp = await fetch(`${baseUrl}/hjr?theta=${thetaDeg}&v=5.0&modo=backward`);
+        hjrData = await resp.json();
+    } catch(e) {
+        console.error("Error BRT:", e);
+    }
+    fetchEnCurso = false;
 }
 
 function iniciarPollingHJR() {
@@ -185,26 +189,20 @@ function iniciarPollingHJR() {
             if (data.listo && !hjrListo) {
                 hjrListo = true;
                 clearInterval(hjrPollTimer);
-                habilitarPanelHJR();
+                document.getElementById("hjr-estado-txt").textContent = "✅ BRT listo";
+                document.getElementById("hjr-estado-txt").className   = "hjr-estado hjr-listo";
+                // Cargar BRT inicial con theta=0
+                await actualizarBRT(0);
+                thetaUltimoFetch = 0;
+                dibujar();
             }
         } catch(e) {}
     }, 5000);
 }
 
-function habilitarPanelHJR() {
-    document.getElementById("hjr-estado-txt").textContent = "✅ Listo para visualizar";
-    document.getElementById("hjr-estado-txt").className   = "hjr-estado hjr-listo";
-    document.getElementById("hjr-modo").disabled          = false;
-    document.getElementById("hjr-theta-slider").disabled  = false;
-    document.getElementById("hjr-theta-numero").disabled  = false;
-    document.getElementById("btn-hjr").disabled           = false;
-}
-
 function bloquearPanel() {
     robotActivo = true;
     document.getElementById("modo").disabled       = true;
-    document.getElementById("vel-numero").disabled = true;
-    document.getElementById("vel-slider").disabled = true;
     document.getElementById("x-fin").disabled      = true;
     document.getElementById("y-fin").disabled      = true;
     document.getElementById("theta-fin").disabled  = true;
@@ -219,8 +217,6 @@ function bloquearPanel() {
 function desbloquearPanel() {
     robotActivo = false;
     document.getElementById("modo").disabled       = false;
-    document.getElementById("vel-numero").disabled = false;
-    document.getElementById("vel-slider").disabled = false;
     document.getElementById("x-fin").disabled      = false;
     document.getElementById("y-fin").disabled      = false;
     document.getElementById("theta-fin").disabled  = false;
@@ -236,18 +232,53 @@ function conectar() {
         ? "ws://localhost:8000/ws"
         : "wss://robot-dubins.onrender.com/ws";
     ws = new WebSocket(wsUrl);
-    ws.onopen    = () => { console.log("Conectado"); iniciarLoop(); iniciarPollingHJR(); };
-    ws.onmessage = (e) => {
+    ws.onopen = () => {
+        console.log("Conectado");
+        // Fijar velocidad en 5 m/s al conectar
+        ws.send(JSON.stringify({ tipo: "velocidad", valor: V_FIJA }));
+        iniciarLoop();
+        iniciarPollingHJR();
+    };
+    ws.onmessage = async (e) => {
         const data   = JSON.parse(e.data);
         estadoActual = data;
         trayectoria  = data.trayectoria || [];
+
         if (data.activo && !robotActivo) bloquearPanel();
         if (!data.activo && robotActivo) desbloquearPanel();
+
         if (data.hjr_listo && !hjrListo) {
             hjrListo = true;
             clearInterval(hjrPollTimer);
-            habilitarPanelHJR();
+            document.getElementById("hjr-estado-txt").textContent = "✅ BRT listo";
+            document.getElementById("hjr-estado-txt").className   = "hjr-estado hjr-listo";
+            await actualizarBRT(0);
+            thetaUltimoFetch = 0;
         }
+
+        // Actualizar BRT si el ángulo cambió más de 5°
+        if (hjrListo && !fetchEnCurso) {
+            const thetaDegRedondeado = redondearTheta(estadoActual.theta);
+            if (thetaDegRedondeado !== thetaUltimoFetch) {
+                thetaUltimoFetch = thetaDegRedondeado;
+                actualizarBRT(thetaDegRedondeado);  // sin await — no bloquear el render
+            }
+        }
+
+        // Mostrar valor BRT en posición actual
+        const brtVal = valorBRTenPosicion(estadoActual.x, estadoActual.y);
+        const brtEl  = document.getElementById("s-brt");
+        if (brtVal !== null) {
+            brtEl.textContent = brtVal.toFixed(3);
+            brtEl.style.color = brtVal < 0 ? "#ff4444" : "#7fff7f";
+            // Aviso si está en zona peligrosa
+            const avisoP = document.getElementById("aviso-peligro");
+            avisoP.style.display = brtVal < 0 ? "block" : "none";
+        } else {
+            brtEl.textContent = "—";
+            brtEl.style.color = "#aaa";
+        }
+
         dibujar();
         actualizarEstado();
         if (data.colision) mostrarColision();
@@ -265,10 +296,8 @@ function iniciarLoop() {
 function dibujarHJR() {
     if (!hjrData) return;
     const { xs, ys, corte } = hjrData;
-    const nx = xs.length;
-    const ny = ys.length;
+    const nx = xs.length, ny = ys.length;
 
-    // Dibujo suave con interpolación bilineal
     const imageData = ctx.createImageData(W, H);
     const data = imageData.data;
 
@@ -276,26 +305,19 @@ function dibujarHJR() {
         for (let py = 0; py < H; py++) {
             const wx =  (px - W/2) / ESCALA;
             const wy = -(py - H/2) / ESCALA;
-
             const xMin = xs[0], xMax = xs[nx-1];
             const yMin = ys[0], yMax = ys[ny-1];
-
             const fi = (wx - xMin) / (xMax - xMin) * (nx - 1);
             const fj = (wy - yMin) / (yMax - yMin) * (ny - 1);
-
             const i0 = Math.max(0, Math.min(nx-2, Math.floor(fi)));
             const j0 = Math.max(0, Math.min(ny-2, Math.floor(fj)));
-            const i1 = i0 + 1, j1 = j0 + 1;
             const tx = fi - i0, ty = fj - j0;
-
-            const v00 = corte[i0][j0], v10 = corte[i1][j0];
-            const v01 = corte[i0][j1], v11 = corte[i1][j1];
+            const v00 = corte[i0][j0],   v10 = corte[i0+1][j0];
+            const v01 = corte[i0][j0+1], v11 = corte[i0+1][j0+1];
             const val = (1-tx)*(1-ty)*v00 + tx*(1-ty)*v10
                       + (1-tx)*ty*v01     + tx*ty*v11;
-
             const idx4 = (py * W + px) * 4;
             if (val < 0) {
-                // Zona peligrosa — rojo fuerte
                 const intensidad = Math.min(1.0, Math.abs(val) / 2.5);
                 const alpha = Math.round((0.55 + intensidad * 0.45) * 255);
                 data[idx4]   = 220;
@@ -303,7 +325,6 @@ function dibujarHJR() {
                 data[idx4+2] = 20;
                 data[idx4+3] = alpha;
             } else {
-                // Zona segura — verde claro tenue
                 data[idx4]   = 144;
                 data[idx4+1] = 238;
                 data[idx4+2] = 144;
@@ -313,53 +334,35 @@ function dibujarHJR() {
     }
     ctx.putImageData(imageData, 0, 0);
 
-    // Contorno suave del BRT — línea continua en vez de puntitos
+    // Contorno del BRT
     ctx.beginPath();
     ctx.strokeStyle = "rgba(160, 0, 0, 0.9)";
     ctx.lineWidth   = 1.5;
-
-    // Usar el canvas para trazar el contorno del nivel cero
-    // via una pasada por las celdas con cambio de signo
-    const { xs: xsArr, ys: ysArr } = hjrData;
     for (let i = 0; i < nx - 1; i++) {
         for (let j = 0; j < ny - 1; j++) {
             const v00 = corte[i][j],   v10 = corte[i+1][j];
             const v01 = corte[i][j+1], v11 = corte[i+1][j+1];
             const neg = (v00 < 0) + (v10 < 0) + (v01 < 0) + (v11 < 0);
             if (neg > 0 && neg < 4) {
-                // Interpolación lineal del cruce de nivel cero en X
                 if ((v00 < 0) !== (v10 < 0)) {
                     const t = v00 / (v00 - v10);
-                    const wx = xs[i] + t * (xs[i+1] - xs[i]);
-                    const wy = ys[j];
-                    const {cx, cy} = mundoACanvas(wx, wy);
-                    ctx.moveTo(cx - 1, cy);
-                    ctx.lineTo(cx + 1, cy);
+                    const {cx, cy} = mundoACanvas(xs[i] + t*(xs[i+1]-xs[i]), ys[j]);
+                    ctx.moveTo(cx-1, cy); ctx.lineTo(cx+1, cy);
                 }
                 if ((v01 < 0) !== (v11 < 0)) {
                     const t = v01 / (v01 - v11);
-                    const wx = xs[i] + t * (xs[i+1] - xs[i]);
-                    const wy = ys[j+1];
-                    const {cx, cy} = mundoACanvas(wx, wy);
-                    ctx.moveTo(cx - 1, cy);
-                    ctx.lineTo(cx + 1, cy);
+                    const {cx, cy} = mundoACanvas(xs[i] + t*(xs[i+1]-xs[i]), ys[j+1]);
+                    ctx.moveTo(cx-1, cy); ctx.lineTo(cx+1, cy);
                 }
-                // Interpolación en Y
                 if ((v00 < 0) !== (v01 < 0)) {
                     const t = v00 / (v00 - v01);
-                    const wx = xs[i];
-                    const wy = ys[j] + t * (ys[j+1] - ys[j]);
-                    const {cx, cy} = mundoACanvas(wx, wy);
-                    ctx.moveTo(cx, cy - 1);
-                    ctx.lineTo(cx, cy + 1);
+                    const {cx, cy} = mundoACanvas(xs[i], ys[j] + t*(ys[j+1]-ys[j]));
+                    ctx.moveTo(cx, cy-1); ctx.lineTo(cx, cy+1);
                 }
                 if ((v10 < 0) !== (v11 < 0)) {
                     const t = v10 / (v10 - v11);
-                    const wx = xs[i+1];
-                    const wy = ys[j] + t * (ys[j+1] - ys[j]);
-                    const {cx, cy} = mundoACanvas(wx, wy);
-                    ctx.moveTo(cx, cy - 1);
-                    ctx.lineTo(cx, cy + 1);
+                    const {cx, cy} = mundoACanvas(xs[i+1], ys[j] + t*(ys[j+1]-ys[j]));
+                    ctx.moveTo(cx, cy-1); ctx.lineTo(cx, cy+1);
                 }
             }
         }
@@ -369,26 +372,20 @@ function dibujarHJR() {
 
 function dibujar() {
     ctx.clearRect(0, 0, W, H);
-
-    // Fondo claro
     ctx.fillStyle = "#f5f5f0";
     ctx.fillRect(0, 0, W, H);
 
-    // Grilla
     ctx.strokeStyle = "rgba(0,0,0,0.08)";
     ctx.lineWidth   = 0.5;
     for (let x = 0; x < W; x += ESCALA * 5) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
     for (let y = 0; y < H; y += ESCALA * 5) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
 
-    // Borde
     ctx.strokeStyle = "#222";
     ctx.lineWidth   = 4;
     ctx.strokeRect(2, 2, W-4, H-4);
 
-    // HJR primero (debajo de los obstáculos)
     dibujarHJR();
 
-    // Obstáculos rectangulares
     obstaculos_rect.forEach((obs, i) => {
         const { cx, cy } = mundoACanvas(obs.x, obs.y);
         ctx.save();
@@ -399,7 +396,6 @@ function dibujar() {
         ctx.restore();
     });
 
-    // Obstáculos circulares
     obstaculos_circ.forEach(obs => {
         const { cx, cy } = mundoACanvas(obs.x, obs.y);
         ctx.beginPath();
@@ -408,7 +404,6 @@ function dibujar() {
         ctx.fill();
     });
 
-    // Trayectoria
     if (trayectoria.length > 1) {
         ctx.beginPath();
         ctx.strokeStyle = "#e74c3c";
@@ -422,13 +417,15 @@ function dibujar() {
         ctx.stroke();
     }
 
-    // Robot
     const { cx, cy } = mundoACanvas(estadoActual.x, estadoActual.y);
     const theta = estadoActual.theta;
-    const largo = 14;
+
+    // Color del robot según estado BRT
+    const brtVal = valorBRTenPosicion(estadoActual.x, estadoActual.y);
+    const colorRobot = (brtVal !== null && brtVal < 0) ? "#ff2222" : "#1a73e8";
 
     ctx.beginPath();
-    ctx.fillStyle = "#1a73e8";
+    ctx.fillStyle = colorRobot;
     ctx.arc(cx, cy, 8, 0, 2 * Math.PI);
     ctx.fill();
 
@@ -436,7 +433,7 @@ function dibujar() {
     ctx.strokeStyle = "#fff";
     ctx.lineWidth   = 2.5;
     ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + largo * Math.cos(theta), cy - largo * Math.sin(theta));
+    ctx.lineTo(cx + 14 * Math.cos(theta), cy - 14 * Math.sin(theta));
     ctx.stroke();
 }
 
@@ -454,60 +451,6 @@ function mostrarColision() {
     setTimeout(() => aviso.style.display = "none", 2000);
 }
 
-function sincronizarDesdeSlider() {
-    const val = parseFloat(document.getElementById("vel-slider").value);
-    document.getElementById("vel-numero").value = val.toFixed(1);
-    enviarVelocidad(val);
-}
-
-function sincronizarDesdeNumero() {
-    let val = parseFloat(document.getElementById("vel-numero").value);
-    val = Math.max(0.1, Math.min(5.0, val));
-    document.getElementById("vel-slider").value = val;
-    enviarVelocidad(val);
-}
-
-function enviarVelocidad(val) {
-    if (ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ tipo: "velocidad", valor: val }));
-}
-
-function actualizarThetaHJR() {
-    const val = parseInt(document.getElementById("hjr-theta-slider").value);
-    document.getElementById("hjr-theta-numero").value    = val;
-    document.getElementById("hjr-theta-val").textContent = val + "°";
-}
-
-function sincronizarThetaDesdeNumero() {
-    let val = parseInt(document.getElementById("hjr-theta-numero").value);
-    val = Math.max(-180, Math.min(180, val));
-    document.getElementById("hjr-theta-slider").value    = val;
-    document.getElementById("hjr-theta-val").textContent = val + "°";
-}
-
-async function mostrarHJR() {
-    if (!hjrListo) return;
-    const btn   = document.getElementById("btn-hjr");
-    const theta = document.getElementById("hjr-theta-slider").value;
-    const modo  = document.getElementById("hjr-modo").value;
-    btn.disabled    = true;
-    btn.textContent = "Cargando...";
-    try {
-        const resp = await fetch(`${baseUrl}/hjr?theta=${theta}&v=5.0&modo=${modo}`);
-        hjrData = await resp.json();
-        dibujar();
-    } catch(e) {
-        console.error("Error cargando HJR:", e);
-    }
-    btn.disabled    = false;
-    btn.textContent = "Mostrar conjunto";
-}
-
-function limpiarHJR() {
-    hjrData = null;
-    dibujar();
-}
-
 const keyMap = {
     "ArrowUp":    "key-up",
     "ArrowDown":  "key-down",
@@ -519,7 +462,7 @@ document.addEventListener("keydown", (e) => {
     if (!keyMap[e.key]) return;
     e.preventDefault();
     if (e.repeat) return;
-    document.getElementById(keyMap[e.key]).classList.add("active");
+    document.getElementById(keyMap[e.key])?.classList.add("active");
     if (e.key === "ArrowUp") {
         if (!robotActivo && ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ tipo: "tecla", tecla: "ArrowUp" }));
@@ -541,7 +484,7 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("keyup", (e) => {
     if (!keyMap[e.key]) return;
     e.preventDefault();
-    document.getElementById(keyMap[e.key]).classList.remove("active");
+    document.getElementById(keyMap[e.key])?.classList.remove("active");
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify({ tipo: "giro", valor: 0.0 }));
@@ -549,8 +492,9 @@ document.addEventListener("keyup", (e) => {
 });
 
 function resetear() {
-    trayectoria = [];
-    hjrData     = null;
+    trayectoria      = [];
+    hjrData          = null;
+    thetaUltimoFetch = null;
     desbloquearPanel();
     if (ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ tipo: "reset" }));
@@ -561,7 +505,6 @@ function cambiarModo() {
     const modo = document.getElementById("modo").value;
     document.getElementById("panel-manual").style.display = modo === "manual"     ? "block" : "none";
     document.getElementById("panel-auto").style.display   = modo === "automatico" ? "block" : "none";
-    document.getElementById("panel-hjr").style.display    = modo === "hjr"        ? "block" : "none";
 }
 
 function enviarAutomatico() {
