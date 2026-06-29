@@ -3,7 +3,7 @@ from math import cos, sin, pi
 
 class DubinsCar:
     """Modelo cinemático de un Dubins Car."""
-#
+
     def __init__(self, x=0.0, y=0.0, theta=0.0, v_max=2.0, w_max=1.5):
         self.x     = x
         self.y     = y
@@ -13,13 +13,15 @@ class DubinsCar:
         self.v_max = v_max
         self.w_max = w_max
 
-    def actualizar(self, v, w, dt):
-        
-
+    def actualizar(self, v, w, dt, limite=20.0):
         self.x     += v * cos(self.theta) * dt
         self.y     += v * sin(self.theta) * dt
         self.theta += w * dt
-
+        # Normalizar theta a [-π, π]
+        self.theta  = (self.theta + pi) % (2 * pi) - pi
+        # Limitar posición al playground
+        self.x = max(-limite, min(limite, self.x))
+        self.y = max(-limite, min(limite, self.y))
         self.v = v
         self.w = w
 

@@ -148,7 +148,9 @@ function mundoACanvas(x, y) {
 
 // Redondear ángulo al múltiplo de 5° más cercano
 function redondearTheta(thetaRad) {
-    const deg = thetaRad * 180 / Math.PI;
+    // Normalizar a [-180, 180] antes de redondear
+    let deg = thetaRad * 180 / Math.PI;
+    deg = ((deg + 180) % 360 + 360) % 360 - 180;
     return Math.round(deg / 5) * 5;
 }
 
