@@ -31,14 +31,16 @@
         .fila { display: flex; align-items: center; gap: 8px; }
         label { font-size: 12px; color: #aaa; }
         .colision-aviso { background: #c0392b; border-radius: 8px; padding: 10px; text-align: center; font-weight: bold; display: none; }
-        .estado-robot { border-radius: 6px; padding: 6px 10px; font-size: 12px; text-align: center; font-weight: bold; }
-        .estado-detenido   { background: #2d6a2d; color: #7fff7f; }
-        .estado-moviendo   { background: #6a4a2d; color: #ffcc7f; }
+        .estado-fila-top { display: flex; gap: 8px; margin-bottom: 0; }
+        .estado-badge { flex: 1; border-radius: 6px; padding: 6px 4px; font-size: 12px; text-align: center; font-weight: bold; }
+        .badge-detenido  { background: #6a4a2d; color: #ffcc7f; }
+        .badge-moviendo  { background: #1a4a7a; color: #7fbfff; }
+        .badge-seguro    { background: #2d6a2d; color: #7fff7f; }
+        .badge-peligroso { background: #8b0000; color: #ffaaaa; }
         .leyenda { display: flex; gap: 8px; align-items: center; font-size: 11px; margin-top: 6px; }
         .leyenda-color { width: 16px; height: 16px; border-radius: 3px; }
         .hjr-estado { font-size: 11px; color: #aaa; text-align: center; margin-top: 4px; }
         .hjr-listo { color: #7fff7f; }
-        .peligro-aviso { background: #8b0000; border-radius: 8px; padding: 8px; text-align: center; font-weight: bold; font-size: 12px; display: none; }
     </style>
 </head>
 <body>
@@ -48,9 +50,11 @@
         <div class="panel">
 
             <div class="colision-aviso" id="aviso-colision">⚠️ Colisión — Robot reiniciado</div>
-            <div class="peligro-aviso"  id="aviso-peligro">⚠️ Estado peligroso</div>
 
-            <div class="estado-robot estado-detenido" id="estado-robot">⏹ Detenido</div>
+            <div class="estado-fila-top">
+                <div class="estado-badge badge-detenido" id="badge-movimiento">⏹ Detenido</div>
+                <div class="estado-badge badge-seguro"   id="badge-peligro">✅ Seguro</div>
+            </div>
 
             <div class="caja">
                 <h3>Modo</h3>
@@ -210,9 +214,9 @@ function bloquearPanel() {
     document.getElementById("theta-fin").disabled  = true;
     const btnCalc = document.getElementById("btn-calcular");
     if (btnCalc) btnCalc.disabled = true;
-    const estadoEl = document.getElementById("estado-robot");
-    estadoEl.textContent = "▶ En movimiento";
-    estadoEl.className   = "estado-robot estado-moviendo";
+    const estadoEl = document.getElementById("badge-movimiento");
+    estadoEl.textContent = "▶ Movimiento";
+    estadoEl.className   = "estado-badge badge-moviendo";
     canvas.focus();
 }
 
@@ -224,9 +228,9 @@ function desbloquearPanel() {
     document.getElementById("theta-fin").disabled  = false;
     const btnCalc = document.getElementById("btn-calcular");
     if (btnCalc) btnCalc.disabled = false;
-    const estadoEl = document.getElementById("estado-robot");
+    const estadoEl = document.getElementById("badge-movimiento");
     estadoEl.textContent = "⏹ Detenido";
-    estadoEl.className   = "estado-robot estado-detenido";
+    estadoEl.className   = "estado-badge badge-detenido";
 }
 
 function conectar() {
@@ -274,8 +278,14 @@ function conectar() {
             brtEl.textContent = brtVal.toFixed(3);
             brtEl.style.color = brtVal < 0 ? "#ff4444" : "#7fff7f";
             // Aviso si está en zona peligrosa
-            const avisoP = document.getElementById("aviso-peligro");
-            avisoP.style.display = brtVal < 0 ? "block" : "none";
+            const badgeP = document.getElementById("badge-peligro");
+            if (brtVal < 0) {
+                badgeP.textContent = "⚠️ Peligroso";
+                badgeP.className   = "estado-badge badge-peligroso";
+            } else {
+                badgeP.textContent = "✅ Seguro";
+                badgeP.className   = "estado-badge badge-seguro";
+            }
         } else {
             brtEl.textContent = "—";
             brtEl.style.color = "#aaa";
