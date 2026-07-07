@@ -26,7 +26,7 @@ planner     = DubinsPlanner(radio_min=0.5)
 controller  = Controller()
 trayectoria = [(0.0, 0.0)]
 
-LIMITE = 25.0
+LIMITE = 20.0
 
 obstaculos_rect = [
     {"x":  10.0, "y": 14.0,  "w": 12.0, "h": 4.0,  "ang": 0},
