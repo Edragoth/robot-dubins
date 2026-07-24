@@ -42,6 +42,9 @@ hjr_instance   = None
 hjr_listo      = False
 hjr_calculando = False
 
+# Modo de control: 'manual' o 'bangbang'
+modo_control = 'manual'
+
 def punto_en_rectangulo(px, py, obs):
     ang = math.radians(obs["ang"])
     dx  = px - obs["x"]
@@ -114,9 +117,21 @@ async def calcular_hjr(theta: float = 0.0, v: float = 1.0, modo: str = "backward
         "theta": theta
     }
 
+@app.get("/control")
+async def obtener_control(x: float = 0.0, y: float = 0.0, theta: float = 0.0):
+    """
+    Retorna el control bang-bang para la posición (x, y, theta).
+    theta en grados.
+    """
+    if not hjr_listo:
+        return {"error": "HJR aún calculando"}
+
+    resultado = hjr_instance.obtener_control_bangbang(x, y, theta)
+    return resultado
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    global trayectoria
+    global trayectoria, modo_control
     await websocket.accept()
     try:
         while True:
@@ -134,6 +149,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif mensaje["tipo"] == "velocidad":
                 controller.set_velocidad(mensaje["valor"])
+
+            elif mensaje["tipo"] == "modo_control":
+                modo_control = mensaje["valor"]  # 'manual' o 'bangbang'
+                print(f"Modo control: {modo_control}")
 
             elif mensaje["tipo"] == "reset":
                 robot.reset(x=0.0, y=0.0, theta=0.0)
@@ -153,6 +172,19 @@ async def websocket_endpoint(websocket: WebSocket):
                 pass
 
             v, w = controller.obtener_comandos()
+
+            # Control bang-bang: si está activo y el robot está en zona peligrosa,
+            # reemplazar el giro del usuario por el control óptimo
+            control_info = {"peligroso": False, "w_bangbang": 0.0}
+            if modo_control == 'bangbang' and hjr_listo and controller.activo:
+                theta_deg = math.degrees(robot.theta)
+                resultado = hjr_instance.obtener_control_bangbang(
+                    robot.x, robot.y, theta_deg
+                )
+                control_info = resultado
+                if resultado["peligroso"]:
+                    w = resultado["w"]  # sobreescribir giro con control óptimo
+
             robot.actualizar(v, w, dt=0.1)
 
             if verificar_colision(robot.x, robot.y):
@@ -163,10 +195,13 @@ async def websocket_endpoint(websocket: WebSocket):
             trayectoria.append((robot.x, robot.y))
 
             estado = robot.obtener_estado()
-            estado["trayectoria"] = trayectoria[-300:]
-            estado["colision"]    = False
-            estado["activo"]      = controller.activo
-            estado["hjr_listo"]   = hjr_listo
+            estado["trayectoria"]  = trayectoria[-300:]
+            estado["colision"]     = False
+            estado["activo"]       = controller.activo
+            estado["hjr_listo"]    = hjr_listo
+            estado["peligroso"]    = control_info.get("peligroso", False)
+            estado["w_bangbang"]   = control_info.get("w", 0.0)
+            estado["modo_control"] = modo_control
 
             await websocket.send_text(json.dumps(estado))
 
