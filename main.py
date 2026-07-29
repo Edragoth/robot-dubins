@@ -32,7 +32,7 @@ LIMITE = 20.0
 # Ajustar independientemente para cada método futuro
 UMBRALES = {
     'manual':   0.0,   # sin control — no interviene
-    'bangbang': 0.75,   # bang-bang activa con margen de seguridad
+    'bangbang': 0.9,   # bang-bang activa con margen de seguridad
 }
 
 obstaculos_rect = [
