@@ -29,11 +29,15 @@ trayectoria = [(0.0, 0.0)]
 LIMITE = 20.0
 
 # Umbrales de seguridad por modo de control
-# Ajustar independientemente para cada método futuro
+# Ajustar independientemente para cada método
 UMBRALES = {
-    'manual':   0.0,   # sin control — no interviene
-    'bangbang': 1.6,   # bang-bang activa con margen de seguridad
+    'manual': 0.0,   # sin control — no interviene
+    'lrf':    1.6,   # LRF (Least Restrictive Filter) — antes bang-bang
+    'cbf':    1.6,   # CBF (Control Barrier Function)
 }
+
+# Parámetro alpha del CBF — controla agresividad de la intervención
+CBF_ALPHA = 1.0
 
 obstaculos_rect = [
     {"x":  10.0, "y": 14.0,  "w": 12.0, "h": 4.0,  "ang": 0},
@@ -49,7 +53,7 @@ hjr_instance   = None
 hjr_listo      = False
 hjr_calculando = False
 
-# Modo de control: 'manual' o 'bangbang'
+# Modo de control activo
 modo_control = 'manual'
 
 def punto_en_rectangulo(px, py, obs):
@@ -113,9 +117,7 @@ async def hjr_estado():
 async def calcular_hjr(theta: float = 0.0, v: float = 1.0, modo: str = "backward"):
     if not hjr_listo:
         return {"error": "HJR aún calculando, espera un momento"}
-
     xs, ys, corte = hjr_instance.obtener_corte(theta)
-
     return {
         "xs":    xs.tolist(),
         "ys":    ys.tolist(),
@@ -125,11 +127,13 @@ async def calcular_hjr(theta: float = 0.0, v: float = 1.0, modo: str = "backward
     }
 
 @app.get("/control")
-async def obtener_control(x: float = 0.0, y: float = 0.0, theta: float = 0.0):
-    """Retorna el control bang-bang para la posición (x, y, theta en grados)."""
+async def obtener_control(x: float = 0.0, y: float = 0.0, theta: float = 0.0, modo: str = "lrf", w_usuario: float = 0.0):
+    """Retorna el control de seguridad para la posición dada."""
     if not hjr_listo:
         return {"error": "HJR aún calculando"}
-    return hjr_instance.obtener_control_bangbang(x, y, theta)
+    if modo == "cbf":
+        return hjr_instance.obtener_control_cbf(x, y, theta, w_usuario, alpha=CBF_ALPHA)
+    return hjr_instance.obtener_control_lrf(x, y, theta)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -176,20 +180,35 @@ async def websocket_endpoint(websocket: WebSocket):
             v, w = controller.obtener_comandos()
 
             # Aplicar control según modo activo
-            control_info = {"V": 0.0, "peligroso": False, "w": 0.0}
-            if hjr_listo and controller.activo:
+            control_info = {"V": 0.0, "peligroso": False, "w": w, "intervenido": False}
+
+            if hjr_listo and controller.activo and modo_control != 'manual':
                 theta_deg = math.degrees(robot.theta)
-                resultado = hjr_instance.obtener_control_bangbang(
-                    robot.x, robot.y, theta_deg
-                )
-                control_info = resultado
+                umbral    = UMBRALES.get(modo_control, 0.0)
 
-                # Obtener umbral del modo activo
-                umbral = UMBRALES.get(modo_control, 0.0)
+                if modo_control == 'lrf':
+                    resultado = hjr_instance.obtener_control_lrf(
+                        robot.x, robot.y, theta_deg
+                    )
+                    control_info = resultado
+                    if resultado["V"] < umbral:
+                        w = resultado["w"]
+                        control_info["intervenido"] = True
 
-                # Activar control si V está por debajo del umbral
-                if modo_control != 'manual' and resultado["V"] < umbral:
-                    w = resultado["w"]
+                elif modo_control == 'cbf':
+                    resultado = hjr_instance.obtener_control_cbf(
+                        robot.x, robot.y, theta_deg, w, alpha=CBF_ALPHA
+                    )
+                    control_info = resultado
+                    # CBF siempre aplica su w (puede ser igual al usuario si es seguro)
+                    if resultado["V"] < umbral:
+                        w = resultado["w"]
+
+            elif hjr_listo:
+                # Solo calcular V para mostrarlo, sin intervenir
+                theta_deg = math.degrees(robot.theta)
+                resultado = hjr_instance.obtener_control_lrf(robot.x, robot.y, theta_deg)
+                control_info["V"] = resultado["V"]
 
             robot.actualizar(v, w, dt=0.1)
 
@@ -200,14 +219,17 @@ async def websocket_endpoint(websocket: WebSocket):
 
             trayectoria.append((robot.x, robot.y))
 
+            umbral = UMBRALES.get(modo_control, 0.0)
+
             estado = robot.obtener_estado()
             estado["trayectoria"]  = trayectoria[-300:]
             estado["colision"]     = False
             estado["activo"]       = controller.activo
             estado["hjr_listo"]    = hjr_listo
-            estado["peligroso"]    = control_info.get("V", 0.0) < UMBRALES.get(modo_control, 0.0)
-            estado["w_bangbang"]   = control_info.get("w", 0.0)
+            estado["peligroso"]    = control_info.get("V", 0.0) < umbral
+            estado["w_control"]    = control_info.get("w", 0.0)
             estado["V"]            = control_info.get("V", 0.0)
+            estado["intervenido"]  = control_info.get("intervenido", False)
             estado["modo_control"] = modo_control
 
             await websocket.send_text(json.dumps(estado))

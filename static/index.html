@@ -66,7 +66,7 @@
         .control-btn { background: #333; color: #aaa; border: 1px solid #555; border-radius: 8px; padding: 7px 10px; cursor: pointer; font-size: 12px; text-align: left; width: 100%; transition: all 0.15s; margin-bottom: 5px; }
         .control-btn:hover { background: #444; }
         .control-btn.activo { background: #1a4a7a; color: #7fbfff; border-color: #3a6a9a; font-weight: bold; }
-        .control-btn.activo-bangbang { background: #4a1a1a; color: #ffaaaa; border-color: #8b0000; font-weight: bold; }
+        .control-btn.activo-control { background: #4a1a1a; color: #ffaaaa; border-color: #8b0000; font-weight: bold; }
 
         /* Leyenda */
         .leyenda { display: flex; gap: 8px; align-items: center; font-size: 11px; margin-top: 6px; }
@@ -165,7 +165,8 @@
             <div class="caja">
                 <h3>Modo de control</h3>
                 <button class="control-btn activo"    id="btn-sin-control" onclick="cambiarModoControl('manual')">🕹️ Sin control</button>
-                <button class="control-btn"           id="btn-bangbang"    onclick="cambiarModoControl('bangbang')">⚡ Bang-bang</button>
+                <button class="control-btn"           id="btn-lrf"    onclick="cambiarModoControl('lrf')">🛡️ LRF</button>
+                <button class="control-btn"           id="btn-cbf"    onclick="cambiarModoControl('cbf')">🔬 CBF</button>
             </div>
 
         </div>
@@ -203,8 +204,9 @@ let modoControl = 'manual';
 
 function cambiarModoControl(modo) {
     modoControl = modo;
-    document.getElementById('btn-sin-control').className = 'control-btn' + (modo === 'manual'   ? ' activo' : '');
-    document.getElementById('btn-bangbang').className    = 'control-btn' + (modo === 'bangbang' ? ' activo-bangbang' : '');
+    document.getElementById('btn-sin-control').className = 'control-btn' + (modo === 'manual' ? ' activo' : '');
+    document.getElementById('btn-lrf').className         = 'control-btn' + (modo === 'lrf'    ? ' activo-control' : '');
+    document.getElementById('btn-cbf').className         = 'control-btn' + (modo === 'cbf'    ? ' activo-control' : '');
     if (ws && ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ tipo: 'modo_control', valor: modo }));
 }
@@ -355,8 +357,8 @@ function conectar() {
 
         // Mostrar W control bang-bang
         const wCtrlEl = document.getElementById("s-wctrl");
-        if (data.modo_control === 'bangbang' && data.peligroso) {
-            wCtrlEl.textContent = (data.w_bangbang?.toFixed(2) ?? "—") + " rad/s";
+        if (data.modo_control === 'lrf' && data.peligroso) {
+            wCtrlEl.textContent = (data.w_control?.toFixed(2) ?? "—") + " rad/s";
             wCtrlEl.style.color = "#ffaaaa";
         } else {
             wCtrlEl.textContent = "—";
