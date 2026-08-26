@@ -6,6 +6,7 @@ from dubins_car import DubinsCar
 from planner import DubinsPlanner
 from controller import Controller
 from hjr import DubinsHJR
+from apf import APF
 import json
 import math
 import asyncio
@@ -32,17 +33,18 @@ LIMITE = 20.0
 # Ajustar independientemente para cada método
 UMBRALES = {
     'manual': 0.0,   # sin control — no interviene
-    'lrf':    1.6,   # LRF (Least Restrictive Filter) — antes bang-bang
+    'lrf':    1.6,   # LRF (Least Restrictive Filter)
     'cbf':    1.6,   # CBF (Control Barrier Function)
+    'apf':    3.0,   # APF (Artificial Potential Field)
 }
 
-# Parámetro alpha del CBF — controla agresividad de la intervención
+# Parámetro alpha del CBF
 CBF_ALPHA = 1.0
 
 obstaculos_rect = [
     {"x":  10.0, "y": 14.0,  "w": 12.0, "h": 4.0,  "ang": 0},
-    {"x": -5.0,  "y": -10.0, "w": 4.0,  "h": 8.0,  "ang": 0},
-    {"x":  10.0, "y": -10.0, "w": 8.0,  "h": 4.0,  "ang": 0},
+    {"x":  -5.0, "y": -10.0, "w":  4.0, "h": 8.0,  "ang": 0},
+    {"x":  10.0, "y": -10.0, "w":  8.0, "h": 4.0,  "ang": 0},
 ]
 
 obstaculos_circ = [
@@ -52,6 +54,7 @@ obstaculos_circ = [
 hjr_instance   = None
 hjr_listo      = False
 hjr_calculando = False
+apf_instance   = APF(speed=5.0, w_max=1.3, eta=1.0, d0=5.0)
 
 # Modo de control activo
 modo_control = 'manual'
@@ -129,6 +132,8 @@ async def calcular_hjr(theta: float = 0.0, v: float = 1.0, modo: str = "backward
 @app.get("/control")
 async def obtener_control(x: float = 0.0, y: float = 0.0, theta: float = 0.0, modo: str = "lrf", w_usuario: float = 0.0):
     """Retorna el control de seguridad para la posición dada."""
+    if modo == "apf":
+        return apf_instance.obtener_control_apf(x, y, theta, w_usuario)
     if not hjr_listo:
         return {"error": "HJR aún calculando"}
     if modo == "cbf":
@@ -182,11 +187,11 @@ async def websocket_endpoint(websocket: WebSocket):
             # Aplicar control según modo activo
             control_info = {"V": 0.0, "peligroso": False, "w": w, "intervenido": False}
 
-            if hjr_listo and controller.activo and modo_control != 'manual':
+            if controller.activo and modo_control != 'manual':
                 theta_deg = math.degrees(robot.theta)
                 umbral    = UMBRALES.get(modo_control, 0.0)
 
-                if modo_control == 'lrf':
+                if modo_control == 'lrf' and hjr_listo:
                     resultado = hjr_instance.obtener_control_lrf(
                         robot.x, robot.y, theta_deg
                     )
@@ -195,12 +200,20 @@ async def websocket_endpoint(websocket: WebSocket):
                         w = resultado["w"]
                         control_info["intervenido"] = True
 
-                elif modo_control == 'cbf':
+                elif modo_control == 'cbf' and hjr_listo:
                     resultado = hjr_instance.obtener_control_cbf(
                         robot.x, robot.y, theta_deg, w, alpha=CBF_ALPHA
                     )
                     control_info = resultado
-                    # CBF siempre aplica su w (puede ser igual al usuario si es seguro)
+                    if resultado["V"] < umbral:
+                        w = resultado["w"]
+
+                elif modo_control == 'apf':
+                    resultado = apf_instance.obtener_control_apf(
+                        robot.x, robot.y, theta_deg, w
+                    )
+                    control_info = resultado
+                    # APF interviene cuando d_min < umbral
                     if resultado["V"] < umbral:
                         w = resultado["w"]
 

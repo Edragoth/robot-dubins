@@ -167,6 +167,7 @@
                 <button class="control-btn activo"    id="btn-sin-control" onclick="cambiarModoControl('manual')">🕹️ Sin control</button>
                 <button class="control-btn"           id="btn-lrf"    onclick="cambiarModoControl('lrf')">🛡️ LRF</button>
                 <button class="control-btn"           id="btn-cbf"    onclick="cambiarModoControl('cbf')">🔬 CBF</button>
+                <button class="control-btn"           id="btn-apf"    onclick="cambiarModoControl('apf')">🧲 APF</button>
             </div>
 
         </div>
@@ -207,6 +208,7 @@ function cambiarModoControl(modo) {
     document.getElementById('btn-sin-control').className = 'control-btn' + (modo === 'manual' ? ' activo' : '');
     document.getElementById('btn-lrf').className         = 'control-btn' + (modo === 'lrf'    ? ' activo-control' : '');
     document.getElementById('btn-cbf').className         = 'control-btn' + (modo === 'cbf'    ? ' activo-control' : '');
+    document.getElementById('btn-apf').className         = 'control-btn' + (modo === 'apf'    ? ' activo-control' : '');
     if (ws && ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ tipo: 'modo_control', valor: modo }));
 }
