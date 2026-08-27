@@ -33,8 +33,8 @@ LIMITE = 20.0
 # Ajustar independientemente para cada método
 UMBRALES = {
     'manual': 0.0,   # sin control — no interviene
-    'lrf':    2.0,   # LRF (Least Restrictive Filter)
-    'cbf':    2.0,   # CBF (Control Barrier Function)
+    'lrf':    2.2,   # LRF (Least Restrictive Filter)
+    'cbf':    2.2,   # CBF (Control Barrier Function)
     'apf':    3.0,   # APF (Artificial Potential Field)
 }
 
