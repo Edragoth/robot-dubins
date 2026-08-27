@@ -33,8 +33,8 @@ LIMITE = 20.0
 # Ajustar independientemente para cada método
 UMBRALES = {
     'manual': 0.0,   # sin control — no interviene
-    'lrf':    1.6,   # LRF (Least Restrictive Filter)
-    'cbf':    1.6,   # CBF (Control Barrier Function)
+    'lrf':    2.0,   # LRF (Least Restrictive Filter)
+    'cbf':    2.0,   # CBF (Control Barrier Function)
     'apf':    3.0,   # APF (Artificial Potential Field)
 }
 
@@ -213,9 +213,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         robot.x, robot.y, theta_deg, w
                     )
                     control_info = resultado
-                    # APF interviene cuando d_min < umbral
-                    if resultado["V"] < umbral:
-                        w = resultado["w"]
+                    # APF siempre aplica — la mezcla gradual es interna al apf.py
+                    w = resultado["w"]
+                    print(f"APF: x={robot.x:.1f}, y={robot.y:.1f}, w_usr={w:.2f}, w_apf={resultado['w']:.2f}, f_mag={resultado['f_mag']:.3f}, V={resultado['V']:.2f}")
 
             elif hjr_listo:
                 # Solo calcular V para mostrarlo, sin intervenir
