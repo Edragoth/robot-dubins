@@ -33,8 +33,8 @@ LIMITE = 20.0
 # Ajustar independientemente para cada método
 UMBRALES = {
     'manual': 0.0,   # sin control — no interviene
-    'lrf':    2.2,   # LRF (Least Restrictive Filter)
-    'cbf':    2.2,   # CBF (Control Barrier Function)
+    'lrf':    2.4,   # LRF (Least Restrictive Filter)
+    'cbf':    2.4,   # CBF (Control Barrier Function)
     'apf':    3.0,   # APF (Artificial Potential Field)
 }
 
@@ -215,7 +215,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     control_info = resultado
                     # APF siempre aplica — la mezcla gradual es interna al apf.py
                     w = resultado["w"]
-                    print(f"APF: x={robot.x:.1f}, y={robot.y:.1f}, w_usr={w:.2f}, w_apf={resultado['w']:.2f}, f_mag={resultado['f_mag']:.3f}, V={resultado['V']:.2f}")
 
             elif hjr_listo:
                 # Solo calcular V para mostrarlo, sin intervenir
