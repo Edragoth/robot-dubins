@@ -16,7 +16,7 @@ class APF:
 
         # Parámetros especiales para el muro perimetral
         self.ETA_MURO = 3.0
-        self.D0_MURO  = 10.0
+        self.D0_MURO  = 12.0
 
         self.obstaculos_rect = [
             {"x":  10.0, "y":  14.0, "w": 12.0, "h": 4.0},
@@ -28,7 +28,7 @@ class APF:
         ]
         self.limite = 20.0
 
-        self.D_CONTROL_TOTAL = 4.0
+        self.D_CONTROL_TOTAL = 6.0
         self.D_MIN           = 0.3
         self.F_MAX           = 10.0
         self.F_REF           = 1.0
