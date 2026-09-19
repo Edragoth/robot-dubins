@@ -103,7 +103,7 @@
 
             <div class="caja">
                 <h3>HJR</h3>
-                <div class="dato-fila"><span>BRT value</span><span class="dato-val" id="s-brt">—</span></div>
+                <div class="dato-fila"><span id="s-brt-label">BRT value</span><span class="dato-val" id="s-brt">—</span></div>
                 <div class="dato-fila"><span>W control</span><span class="dato-val" id="s-wctrl">—</span></div>
                 <div class="hjr-estado" id="hjr-estado-txt">⏳ Loading BRT...</div>
             </div>
@@ -168,6 +168,12 @@
                 <button class="control-btn"           id="btn-lrf"    onclick="cambiarModoControl('lrf')">🛡️ LRF</button>
                 <button class="control-btn"           id="btn-cbf"    onclick="cambiarModoControl('cbf')">🔬 CBF+HJ</button>
                 <button class="control-btn"           id="btn-apf"    onclick="cambiarModoControl('apf')">🧲 APF</button>
+                <div id="panel-apf-slider" style="display:none; margin-top:8px;">
+                    <label style="font-size:11px; color:#aaa;">Force intensity (η): <span id="apf-eta-val">1.0</span></label>
+                    <input type="range" id="apf-eta-slider" min="0.1" max="5.0" step="0.1" value="1.0"
+                        style="width:100%; accent-color:#e8a030; margin-top:4px;"
+                        oninput="actualizarEtaAPF()">
+                </div>
             </div>
 
         </div>
@@ -202,6 +208,7 @@ let hjrPollTimer = null;
 
 // Modo de control activo
 let modoControl = 'manual';
+let apfEta = 1.0;  // intensidad campo APF
 
 function cambiarModoControl(modo) {
     modoControl = modo;
@@ -209,6 +216,7 @@ function cambiarModoControl(modo) {
     document.getElementById('btn-lrf').className         = 'control-btn' + (modo === 'lrf'    ? ' activo-control' : '');
     document.getElementById('btn-cbf').className         = 'control-btn' + (modo === 'cbf'    ? ' activo-control' : '');
     document.getElementById('btn-apf').className         = 'control-btn' + (modo === 'apf'    ? ' activo-control' : '');
+    document.getElementById('panel-apf-slider').style.display = (modo === 'apf') ? 'block' : 'none';
     if (ws && ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ tipo: 'modo_control', valor: modo }));
 }
@@ -223,6 +231,15 @@ const baseUrl = window.location.hostname === "localhost"
 
 function mundoACanvas(x, y) {
     return { cx: W/2 + x * ESCALA, cy: H/2 - y * ESCALA };
+}
+
+function actualizarEtaAPF() {
+    apfEta = parseFloat(document.getElementById('apf-eta-slider').value);
+    document.getElementById('apf-eta-val').textContent = apfEta.toFixed(1);
+    // Enviar al servidor para actualizar apf_instance.eta
+    if (ws && ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ tipo: 'apf_eta', valor: apfEta }));
+    dibujar();
 }
 
 function redondearTheta(thetaRad) {
@@ -340,8 +357,12 @@ function conectar() {
 
         // Mostrar valor BRT
         const brtVal = valorBRTenPosicion(estadoActual.x, estadoActual.y);
+        // Actualizar label según modo
+        const brtLabel = document.getElementById("s-brt-label");
+        if (brtLabel) brtLabel.textContent = (data.modo_control === 'apf') ? 'Force mag.' : 'BRT value';
+
         const brtEl  = document.getElementById("s-brt");
-        if (brtVal !== null) {
+        if (brtVal !== null && data.modo_control !== 'apf') {
             brtEl.textContent = brtVal.toFixed(3);
             brtEl.style.color = brtVal < 0 ? "#ff4444" : "#7fff7f";
             const badgeP = document.getElementById("badge-peligro");
@@ -352,6 +373,10 @@ function conectar() {
                 badgeP.textContent = "✅ Safe";
                 badgeP.className   = "estado-badge badge-seguro";
             }
+        } else if (data.modo_control === 'apf') {
+            const fmag = data.V !== undefined ? data.V : 0;
+            brtEl.textContent = (data.f_mag !== undefined ? data.f_mag : fmag).toFixed(3);
+            brtEl.style.color = "#e8a030";
         } else {
             brtEl.textContent = "—";
             brtEl.style.color = "#aaa";
@@ -380,6 +405,148 @@ function iniciarLoop() {
             ws.send(JSON.stringify({ tipo: "tick" }));
     }, 100);
 }
+
+
+// ---- APF Field Visualization ----
+function calcularFuerzaAPF(px, py, eta, d0, etaMuro, d0Muro) {
+    const D_MIN = 0.3;
+    let fx = 0, fy = 0;
+
+    function repulsion(d, gx, gy, e, d0_) {
+        d = Math.max(d, D_MIN);
+        if (d < d0_) {
+            const mag = e * (1/d - 1/d0_) / (d*d);
+            fx += mag * gx;
+            fy += mag * gy;
+        }
+    }
+
+    function distRect(px, py, obs) {
+        const x_min = obs.x - obs.w/2, x_max = obs.x + obs.w/2;
+        const y_min = obs.y - obs.h/2, y_max = obs.y + obs.h/2;
+        const cx = Math.max(x_min, Math.min(px, x_max));
+        const cy = Math.max(y_min, Math.min(py, y_max));
+        const dx = px - cx, dy = py - cy;
+        const d = Math.sqrt(dx*dx + dy*dy);
+        if (d < 1e-6) return [0,0,0];
+        return [d, dx/d, dy/d];
+    }
+
+    function distCirc(px, py, obs) {
+        const dx = px - obs.x, dy = py - obs.y;
+        const dc = Math.sqrt(dx*dx + dy*dy);
+        const d = Math.max(dc - obs.r, 0);
+        if (dc < 1e-6) return [0,0,0];
+        return [d, dx/dc, dy/dc];
+    }
+
+    obstaculos_rect.forEach(obs => {
+        const [d,gx,gy] = distRect(px,py,obs);
+        repulsion(d,gx,gy,eta,d0);
+    });
+    obstaculos_circ.forEach(obs => {
+        const [d,gx,gy] = distCirc(px,py,obs);
+        repulsion(d,gx,gy,eta,d0);
+    });
+
+    const LIMITE = 20.0;
+    const muros = [
+        [px-(-LIMITE),  1, 0],
+        [LIMITE-px,    -1, 0],
+        [py-(-LIMITE),  0, 1],
+        [LIMITE-py,     0,-1],
+    ];
+    muros.forEach(([d,gx,gy]) => repulsion(d,gx,gy,etaMuro,d0Muro));
+
+    const fmag = Math.sqrt(fx*fx + fy*fy);
+    const F_MAX = 10.0;
+    if (fmag > F_MAX) { fx = fx/fmag*F_MAX; fy = fy/fmag*F_MAX; }
+    return [fx, fy, Math.min(fmag, F_MAX)];
+}
+
+function dibujarCampoAPF() {
+    const eta     = apfEta;
+    const d0      = 8.0;
+    const etaMuro = 3.0;
+    const d0Muro  = 12.0;
+    const F_MAX   = 10.0;
+
+    // --- Mapa de calor suave ---
+    const imageData = ctx.createImageData(W, H);
+    const data = imageData.data;
+
+    for (let px = 0; px < W; px++) {
+        for (let py = 0; py < H; py++) {
+            const wx =  (px - W/2) / ESCALA;
+            const wy = -(py - H/2) / ESCALA;
+            const [,, fmag] = calcularFuerzaAPF(wx, wy, eta, d0, etaMuro, d0Muro);
+            const t = Math.min(1.0, fmag / F_MAX);
+            const idx4 = (py * W + px) * 4;
+            // Gradiente suave: azul muy claro → naranja tenue
+            data[idx4]   = Math.round(210 + t * 30);   // R: 210→240
+            data[idx4+1] = Math.round(230 - t * 80);   // G: 230→150
+            data[idx4+2] = Math.round(245 - t * 130);  // B: 245→115
+            data[idx4+3] = Math.round(40  + t * 120);  // A: 40→160
+        }
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // --- Flechas en grilla ---
+    const PASOS = 18;
+    const paso_x = W / PASOS;
+    const paso_y = H / PASOS;
+
+    for (let gi = 0; gi < PASOS; gi++) {
+        for (let gj = 0; gj < PASOS; gj++) {
+            const cpx = (gi + 0.5) * paso_x;
+            const cpy = (gj + 0.5) * paso_y;
+            const wx  =  (cpx - W/2) / ESCALA;
+            const wy  = -(cpy - H/2) / ESCALA;
+
+            const [fx, fy, fmag] = calcularFuerzaAPF(wx, wy, eta, d0, etaMuro, d0Muro);
+            if (fmag < 0.01) continue;
+
+            const t      = Math.min(1.0, fmag / F_MAX);
+            const largo  = Math.min(paso_x * 0.42, paso_x * 0.1 + t * paso_x * 0.32);
+            const dirX   =  fx / fmag;
+            const dirY   = -fy / fmag; // invertir Y para canvas
+
+            const x2 = cpx + dirX * largo;
+            const y2 = cpy + dirY * largo;
+
+            // Color flecha: gris azulado suave → naranja tenue
+            const r = Math.round(120 + t * 100);
+            const g = Math.round(140 - t * 40);
+            const b = Math.round(180 - t * 80);
+            const alpha = 0.5 + t * 0.4;
+
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+            ctx.lineWidth   = 1.0 + t * 0.8;
+            ctx.moveTo(cpx, cpy);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+
+            // Cabeza de flecha
+            const angFlecha = Math.atan2(y2 - cpy, x2 - cpx);
+            const headLen   = 4 + t * 3;
+            ctx.beginPath();
+            ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+            ctx.moveTo(x2, y2);
+            ctx.lineTo(
+                x2 - headLen * Math.cos(angFlecha - 0.4),
+                y2 - headLen * Math.sin(angFlecha - 0.4)
+            );
+            ctx.lineTo(
+                x2 - headLen * Math.cos(angFlecha + 0.4),
+                y2 - headLen * Math.sin(angFlecha + 0.4)
+            );
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+}
+// ---- fin APF ----
 
 function dibujarHJR() {
     if (!hjrData) return;
@@ -447,7 +614,12 @@ function dibujar() {
     ctx.lineWidth   = 4;
     ctx.strokeRect(2, 2, W-4, H-4);
 
-    dibujarHJR();
+    // Campo de fuerzas o BRT según modo
+    if (modoControl === 'apf') {
+        dibujarCampoAPF();
+    } else {
+        dibujarHJR();
+    }
 
     obstaculos_rect.forEach((obs, i) => {
         const {cx,cy} = mundoACanvas(obs.x, obs.y);

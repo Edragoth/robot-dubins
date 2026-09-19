@@ -33,8 +33,8 @@ LIMITE = 20.0
 # Ajustar independientemente para cada método
 UMBRALES = {
     'manual': 0.0,   # sin control — no interviene
-    'lrf':    2.4,   # LRF (Least Restrictive Filter)
-    'cbf':    2.4,   # CBF (Control Barrier Function)
+    'lrf':    2.2,   # LRF (Least Restrictive Filter)
+    'cbf':    2.2,   # CBF (Control Barrier Function)
     'apf':    3.0,   # APF (Artificial Potential Field)
 }
 
@@ -165,6 +165,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 modo_control = mensaje["valor"]
                 print(f"Modo control: {modo_control}")
 
+            elif mensaje["tipo"] == "apf_eta":
+                apf_instance.eta = float(mensaje["valor"])
+                print(f"APF eta actualizado: {apf_instance.eta}")
+
             elif mensaje["tipo"] == "reset":
                 robot.reset(x=0.0, y=0.0, theta=0.0)
                 controller.reset()
@@ -242,6 +246,7 @@ async def websocket_endpoint(websocket: WebSocket):
             estado["w_control"]    = control_info.get("w", 0.0)
             estado["V"]            = control_info.get("V", 0.0)
             estado["intervenido"]  = control_info.get("intervenido", False)
+            estado["f_mag"]        = control_info.get("f_mag", 0.0)
             estado["modo_control"] = modo_control
 
             await websocket.send_text(json.dumps(estado))
