@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Robot Dubins Car</title>
+    <title>Dubins Car Robot</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: sans-serif; background: #1e1e1e; color: #fff; padding: 20px; }
@@ -81,42 +81,42 @@
     </style>
 </head>
 <body>
-    <h1>Robot Dubins Car</h1>
+    <h1>Dubins Car Robot</h1>
     <div class="contenedor">
 
         <!-- PANEL IZQUIERDO: datos en vivo -->
         <div class="panel-izq">
 
             <div class="estado-fila-top">
-                <div class="estado-badge badge-detenido" id="badge-movimiento">⏹ Detenido</div>
-                <div class="estado-badge badge-seguro"   id="badge-peligro">✅ Seguro</div>
+                <div class="estado-badge badge-detenido" id="badge-movimiento">⏹ Stopped</div>
+                <div class="estado-badge badge-seguro"   id="badge-peligro">✅ Safe</div>
             </div>
 
             <div class="caja">
-                <h3>Estado del robot</h3>
+                <h3>Robot state</h3>
                 <div class="dato-fila"><span>X</span><span class="dato-val" id="s-x">0.000</span></div>
                 <div class="dato-fila"><span>Y</span><span class="dato-val" id="s-y">0.000</span></div>
-                <div class="dato-fila"><span>Ángulo</span><span class="dato-val" id="s-theta">0.0°</span></div>
+                <div class="dato-fila"><span>Angle</span><span class="dato-val" id="s-theta">0.0°</span></div>
                 <div class="dato-fila"><span>V</span><span class="dato-val" id="s-v">0 m/s</span></div>
                 <div class="dato-fila"><span>W</span><span class="dato-val" id="s-w">0 rad/s</span></div>
             </div>
 
             <div class="caja">
                 <h3>HJR</h3>
-                <div class="dato-fila"><span>BRT valor</span><span class="dato-val" id="s-brt">—</span></div>
+                <div class="dato-fila"><span>BRT value</span><span class="dato-val" id="s-brt">—</span></div>
                 <div class="dato-fila"><span>W control</span><span class="dato-val" id="s-wctrl">—</span></div>
-                <div class="hjr-estado" id="hjr-estado-txt">⏳ Cargando BRT...</div>
+                <div class="hjr-estado" id="hjr-estado-txt">⏳ Loading BRT...</div>
             </div>
 
             <div class="caja">
-                <h3>Leyenda</h3>
-                <div class="leyenda"><div class="leyenda-color" style="background:rgba(220,20,20,0.8)"></div><span>Peligroso</span></div>
-                <div class="leyenda" style="margin-top:4px;"><div class="leyenda-color" style="background:rgba(144,238,144,0.5)"></div><span>Seguro</span></div>
+                <h3>Legend</h3>
+                <div class="leyenda"><div class="leyenda-color" style="background:rgba(220,20,20,0.8)"></div><span>Dangerous</span></div>
+                <div class="leyenda" style="margin-top:4px;"><div class="leyenda-color" style="background:rgba(144,238,144,0.5)"></div><span>Safe</span></div>
             </div>
 
-            <div class="colision-aviso" id="aviso-colision">⚠️ Colisión</div>
+            <div class="colision-aviso" id="aviso-colision">⚠️ Collision</div>
 
-            <button id="btn-reiniciar" onclick="resetear()">Reiniciar robot</button>
+            <button id="btn-reiniciar" onclick="resetear()">Reset robot</button>
 
         </div>
 
@@ -127,10 +127,10 @@
         <div class="panel-der">
 
             <div class="caja">
-                <h3>Modo</h3>
+                <h3>Mode</h3>
                 <select id="modo" onchange="cambiarModo()">
-                    <option value="manual">Manual (teclado)</option>
-                    <option value="automatico">Automático</option>
+                    <option value="manual">Manual (keyboard)</option>
+                    <option value="automatico">Automatic</option>
                 </select>
             </div>
 
@@ -138,7 +138,7 @@
             <div class="caja" id="panel-manual">
                 <h3>Control</h3>
                 <div class="fila" style="margin-bottom:8px;">
-                    <label>V fija:</label>
+                    <label>Fixed V:</label>
                     <span style="color:#7fff7f; font-weight:bold;">5.0 m/s</span>
                 </div>
                 <div class="teclas">
@@ -153,20 +153,20 @@
 
             <!-- Panel automático -->
             <div class="caja" id="panel-auto" style="display:none;">
-                <h3>Destino</h3>
+                <h3>Destination</h3>
                 <div class="fila"><label>X:</label><input type="number" id="x-fin" value="5" step="0.5"></div>
                 <div class="fila" style="margin-top:4px;"><label>Y:</label><input type="number" id="y-fin" value="5" step="0.5"></div>
                 <div class="fila" style="margin-top:4px;"><label>θ:</label><input type="number" id="theta-fin" value="0" step="0.1"></div>
                 <br>
-                <button id="btn-calcular" onclick="enviarAutomatico()">Calcular trayectoria</button>
+                <button id="btn-calcular" onclick="enviarAutomatico()">Calculate path</button>
             </div>
 
             <!-- Selector de modo de control -->
             <div class="caja">
-                <h3>Modo de control</h3>
-                <button class="control-btn activo"    id="btn-sin-control" onclick="cambiarModoControl('manual')">🕹️ Sin control</button>
+                <h3>Control mode</h3>
+                <button class="control-btn activo"    id="btn-sin-control" onclick="cambiarModoControl('manual')">🕹️ No control</button>
                 <button class="control-btn"           id="btn-lrf"    onclick="cambiarModoControl('lrf')">🛡️ LRF</button>
-                <button class="control-btn"           id="btn-cbf"    onclick="cambiarModoControl('cbf')">🔬 CBF</button>
+                <button class="control-btn"           id="btn-cbf"    onclick="cambiarModoControl('cbf')">🔬 CBF+HJ</button>
                 <button class="control-btn"           id="btn-apf"    onclick="cambiarModoControl('apf')">🧲 APF</button>
             </div>
 
@@ -263,7 +263,7 @@ function iniciarPollingHJR() {
             if (data.listo && !hjrListo) {
                 hjrListo = true;
                 clearInterval(hjrPollTimer);
-                document.getElementById("hjr-estado-txt").textContent = "✅ BRT listo";
+                document.getElementById("hjr-estado-txt").textContent = "✅ BRT ready";
                 document.getElementById("hjr-estado-txt").className   = "hjr-estado hjr-listo";
                 await actualizarBRT(0);
                 thetaUltimoFetch = 0;
@@ -282,7 +282,7 @@ function bloquearPanel() {
     const btnCalc = document.getElementById("btn-calcular");
     if (btnCalc) btnCalc.disabled = true;
     const el = document.getElementById("badge-movimiento");
-    el.textContent = "▶ Movimiento";
+    el.textContent = "▶ Moving";
     el.className   = "estado-badge badge-moviendo";
     canvas.focus();
 }
@@ -296,7 +296,7 @@ function desbloquearPanel() {
     const btnCalc = document.getElementById("btn-calcular");
     if (btnCalc) btnCalc.disabled = false;
     const el = document.getElementById("badge-movimiento");
-    el.textContent = "⏹ Detenido";
+    el.textContent = "⏹ Stopped";
     el.className   = "estado-badge badge-detenido";
 }
 
@@ -323,7 +323,7 @@ function conectar() {
         if (data.hjr_listo && !hjrListo) {
             hjrListo = true;
             clearInterval(hjrPollTimer);
-            document.getElementById("hjr-estado-txt").textContent = "✅ BRT listo";
+            document.getElementById("hjr-estado-txt").textContent = "✅ BRT ready";
             document.getElementById("hjr-estado-txt").className   = "hjr-estado hjr-listo";
             await actualizarBRT(0);
             thetaUltimoFetch = 0;
@@ -346,10 +346,10 @@ function conectar() {
             brtEl.style.color = brtVal < 0 ? "#ff4444" : "#7fff7f";
             const badgeP = document.getElementById("badge-peligro");
             if (brtVal < 0) {
-                badgeP.textContent = "⚠️ Peligroso";
+                badgeP.textContent = "⚠️ Danger";
                 badgeP.className   = "estado-badge badge-peligroso";
             } else {
-                badgeP.textContent = "✅ Seguro";
+                badgeP.textContent = "✅ Safe";
                 badgeP.className   = "estado-badge badge-seguro";
             }
         } else {
@@ -452,7 +452,7 @@ function dibujar() {
     obstaculos_rect.forEach((obs, i) => {
         const {cx,cy} = mundoACanvas(obs.x, obs.y);
         ctx.save(); ctx.translate(cx,cy); ctx.rotate(-obs.ang*Math.PI/180);
-        ctx.fillStyle = i===0 ? "#222" : "#2e7d9e";
+        ctx.fillStyle = "#2e7d9e";
         ctx.fillRect(-obs.w/2*ESCALA, -obs.h/2*ESCALA, obs.w*ESCALA, obs.h*ESCALA);
         ctx.restore();
     });
