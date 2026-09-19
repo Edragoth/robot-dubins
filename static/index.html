@@ -167,6 +167,12 @@
                 <button class="control-btn activo"    id="btn-sin-control" onclick="cambiarModoControl('manual')">🕹️ No control</button>
                 <button class="control-btn"           id="btn-lrf"    onclick="cambiarModoControl('lrf')">🛡️ LRF</button>
                 <button class="control-btn"           id="btn-cbf"    onclick="cambiarModoControl('cbf')">🔬 CBF+HJ</button>
+                <div id="panel-cbf-slider" style="display:none; margin-top:8px;">
+                    <label style="font-size:11px; color:#aaa;">Gamma (α): <span id="cbf-gamma-val">1.0</span></label>
+                    <input type="range" id="cbf-gamma-slider" min="0.1" max="5.0" step="0.1" value="1.0"
+                        style="width:100%; accent-color:#7fbfff; margin-top:4px;"
+                        oninput="actualizarGammaCBF()">
+                </div>
                 <button class="control-btn"           id="btn-apf"    onclick="cambiarModoControl('apf')">🧲 APF</button>
                 <div id="panel-apf-slider" style="display:none; margin-top:8px;">
                     <label style="font-size:11px; color:#aaa;">Force intensity (η): <span id="apf-eta-val">1.0</span></label>
@@ -208,7 +214,18 @@ let hjrPollTimer = null;
 
 // Modo de control activo
 let modoControl = 'manual';
-let apfEta = 1.0;  // intensidad campo APF
+let apfEta   = 1.0;  // intensidad campo APF
+let cbfGamma  = 1.0;  // parámetro gamma/alpha del CBF
+let giroActivo   = 0;     // estado actual del giro: -1.3, 0, o 1.3
+let ultimoGiroMs = 0;     // timestamp del último comando de giro
+const GIRO_DEBOUNCE = 80; // ms mínimo entre comandos de giro
+
+function actualizarGammaCBF() {
+    cbfGamma = parseFloat(document.getElementById('cbf-gamma-slider').value);
+    document.getElementById('cbf-gamma-val').textContent = cbfGamma.toFixed(1);
+    if (ws && ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ tipo: 'cbf_gamma', valor: cbfGamma }));
+}
 
 function cambiarModoControl(modo) {
     modoControl = modo;
@@ -217,6 +234,7 @@ function cambiarModoControl(modo) {
     document.getElementById('btn-cbf').className         = 'control-btn' + (modo === 'cbf'    ? ' activo-control' : '');
     document.getElementById('btn-apf').className         = 'control-btn' + (modo === 'apf'    ? ' activo-control' : '');
     document.getElementById('panel-apf-slider').style.display = (modo === 'apf') ? 'block' : 'none';
+    document.getElementById('panel-cbf-slider').style.display = (modo === 'cbf') ? 'block' : 'none';
     if (ws && ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ tipo: 'modo_control', valor: modo }));
 }
@@ -674,18 +692,32 @@ document.addEventListener("keydown", (e) => {
     document.getElementById(keyMap[e.key])?.classList.add("active");
     if (e.key==="ArrowUp"    && !robotActivo && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({tipo:"tecla",tecla:"ArrowUp"}));
     if (e.key==="ArrowDown"  && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({tipo:"tecla",tecla:"ArrowDown"}));
-    if (e.key==="ArrowLeft"  && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({tipo:"giro",valor:1.5}));
-    if (e.key==="ArrowRight" && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({tipo:"giro",valor:-1.5}));
+    if ((e.key==="ArrowLeft" || e.key==="ArrowRight")) {
+        const ahora = Date.now();
+        if (ahora - ultimoGiroMs < GIRO_DEBOUNCE) return;
+        ultimoGiroMs = ahora;
+    }
+    if (e.key==="ArrowLeft" && ws.readyState===WebSocket.OPEN && giroActivo !== 1.3) {
+        giroActivo = 1.3;
+        ws.send(JSON.stringify({tipo:"giro",valor:1.3}));
+    }
+    if (e.key==="ArrowRight" && ws.readyState===WebSocket.OPEN && giroActivo !== -1.3) {
+        giroActivo = -1.3;
+        ws.send(JSON.stringify({tipo:"giro",valor:-1.3}));
+    }
 });
 document.addEventListener("keyup", (e) => {
     if (!keyMap[e.key]) return;
     e.preventDefault();
     document.getElementById(keyMap[e.key])?.classList.remove("active");
-    if ((e.key==="ArrowLeft"||e.key==="ArrowRight") && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({tipo:"giro",valor:0.0}));
+    if ((e.key==="ArrowLeft"||e.key==="ArrowRight") && ws.readyState===WebSocket.OPEN && giroActivo !== 0) {
+        giroActivo = 0;
+        ws.send(JSON.stringify({tipo:"giro",valor:0.0}));
+    }
 });
 
 function resetear() {
-    trayectoria=[]; hjrData=null; thetaUltimoFetch=null;
+    trayectoria=[]; hjrData=null; thetaUltimoFetch=null; giroActivo=0;
     desbloquearPanel();
     if (ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({tipo:"reset"}));
     dibujar();

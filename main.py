@@ -169,6 +169,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 apf_instance.eta = float(mensaje["valor"])
                 print(f"APF eta actualizado: {apf_instance.eta}")
 
+            elif mensaje["tipo"] == "cbf_gamma":
+                global CBF_ALPHA
+                CBF_ALPHA = float(mensaje["valor"])
+                print(f"CBF gamma actualizado: {CBF_ALPHA}")
+
             elif mensaje["tipo"] == "reset":
                 robot.reset(x=0.0, y=0.0, theta=0.0)
                 controller.reset()
