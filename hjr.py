@@ -161,6 +161,82 @@ class DubinsHJR:
             "intervenido": abs(w_cbf - w_usuario) > 1e-4
         }
 
+
+    def obtener_control_smooth_blend(self, x, y, theta_deg, w_usuario, alpha=1.8, epsilon=0.08):
+        """
+        Smooth Blending Filter — basado en el paper:
+        "On Safety and Liveness Filtering Using Hamilton-Jacobi Reachability Analysis"
+
+        Resuelve el QP:
+            min  (w - w_usuario)²
+            s.t. -dV/dtheta · w ≤ dV/dx·v·cos(θ) + dV/dy·v·sin(θ) + alpha·V - epsilon
+                 -w_max ≤ w ≤ w_max
+
+        Equivale al caso 'SmoothBlend' del MATLAB de referencia:
+            A = -deriv_now' * gx
+            b =  deriv_now' * fx + alpha * value_now - epsilon
+            u  = lsqlin(1, u_nom, A, b, [], [], wRange(1), wRange(2))
+
+        Parámetros:
+            alpha:   controla la tasa de decaimiento (1.8 según paper)
+            epsilon: tolerancia de holgura (0.08 según paper)
+        """
+        theta_rad = np.radians(theta_deg)
+        i, j, k  = self._interpolar_estado(x, y, theta_rad)
+
+        V        = float(self.data[-1, i, j, k])
+        dVdx     = float(self.dVdx[i, j, k])
+        dVdy     = float(self.dVdy[i, j, k])
+        dVdtheta = float(self.dVdtheta[i, j, k])
+
+        # Término libre: deriv_now' * fx + alpha * V - epsilon
+        # fx = [v·cos(θ), v·sin(θ), 0] para Dubins Car
+        Lf_V = dVdx * self.speed * np.cos(theta_rad) +                dVdy * self.speed * np.sin(theta_rad)
+
+        rhs = Lf_V + alpha * V - epsilon
+
+        # Restricción: -dVdtheta · w ≤ rhs
+        # → A · w ≤ b  donde A = -dVdtheta, b = rhs
+        # Solución analítica del QP 1D:
+        w = float(w_usuario)
+
+        if abs(dVdtheta) < 1e-6:
+            # Sin influencia del control en V — mantener w del usuario
+            w_final = w
+            intervenido = False
+        else:
+            # Límite impuesto por la restricción
+            w_limite = rhs / (-dVdtheta) if dVdtheta != 0 else None
+
+            if dVdtheta > 0:
+                # A = -dVdtheta < 0 → restricción: w ≥ rhs/(-dVdtheta)
+                # Proyectar al mínimo permitido si el usuario está por debajo
+                if w_limite is not None and w < w_limite:
+                    w = w_limite
+                    intervenido = True
+                else:
+                    intervenido = False
+            else:
+                # A = -dVdtheta > 0 → restricción: w ≤ rhs/(-dVdtheta)
+                if w_limite is not None and w > w_limite:
+                    w = w_limite
+                    intervenido = True
+                else:
+                    intervenido = False
+
+        # Clampear al rango permitido
+        w_final = float(np.clip(w, -self.w_max, self.w_max))
+
+        return {
+            "V":          round(V, 4),
+            "dVdtheta":   round(dVdtheta, 4),
+            "w_usuario":  round(float(w_usuario), 4),
+            "w":          round(w_final, 4),
+            "peligroso":  V < 0,
+            "intervenido": intervenido
+        }
+
     # Mantener compatibilidad con código anterior
     def obtener_control_bangbang(self, x, y, theta_deg):
         return self.obtener_control_lrf(x, y, theta_deg)
+

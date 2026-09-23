@@ -173,6 +173,13 @@
                         style="width:100%; accent-color:#7fbfff; margin-top:4px;"
                         oninput="actualizarGammaCBF()">
                 </div>
+                <button class="control-btn"           id="btn-smooth"  onclick="cambiarModoControl('smooth')">〰️ Smooth Blend</button>
+                <div id="panel-smooth-slider" style="display:none; margin-top:8px;">
+                    <label style="font-size:11px; color:#aaa;">Alpha (α): <span id="smooth-alpha-val">1.8</span></label>
+                    <input type="range" id="smooth-alpha-slider" min="0.1" max="5.0" step="0.1" value="1.8"
+                        style="width:100%; accent-color:#b07fff; margin-top:4px;"
+                        oninput="actualizarAlphaSmooth()">
+                </div>
                 <button class="control-btn"           id="btn-apf"    onclick="cambiarModoControl('apf')">🧲 APF</button>
                 <div id="panel-apf-slider" style="display:none; margin-top:8px;">
                     <label style="font-size:11px; color:#aaa;">Force intensity (η): <span id="apf-eta-val">1.0</span></label>
@@ -218,7 +225,7 @@ let apfEta   = 1.0;  // intensidad campo APF
 let cbfGamma  = 1.0;  // parámetro gamma/alpha del CBF
 let giroActivo   = 0;     // estado actual del giro: -1.3, 0, o 1.3
 let ultimoGiroMs = 0;     // timestamp del último comando de giro
-const GIRO_DEBOUNCE = 80; // ms mínimo entre comandos de giro
+const GIRO_DEBOUNCE = 150; // ms mínimo entre comandos de giro
 
 function actualizarGammaCBF() {
     cbfGamma = parseFloat(document.getElementById('cbf-gamma-slider').value);
@@ -229,12 +236,14 @@ function actualizarGammaCBF() {
 
 function cambiarModoControl(modo) {
     modoControl = modo;
-    document.getElementById('btn-sin-control').className = 'control-btn' + (modo === 'manual' ? ' activo' : '');
+    document.getElementById('btn-sin-control').className = 'control-btn' + (modo === 'manual'  ? ' activo' : '');
     document.getElementById('btn-lrf').className         = 'control-btn' + (modo === 'lrf'    ? ' activo-control' : '');
     document.getElementById('btn-cbf').className         = 'control-btn' + (modo === 'cbf'    ? ' activo-control' : '');
+    document.getElementById('btn-smooth').className      = 'control-btn' + (modo === 'smooth' ? ' activo-control' : '');
     document.getElementById('btn-apf').className         = 'control-btn' + (modo === 'apf'    ? ' activo-control' : '');
-    document.getElementById('panel-apf-slider').style.display = (modo === 'apf') ? 'block' : 'none';
-    document.getElementById('panel-cbf-slider').style.display = (modo === 'cbf') ? 'block' : 'none';
+    document.getElementById('panel-apf-slider').style.display    = (modo === 'apf')    ? 'block' : 'none';
+    document.getElementById('panel-cbf-slider').style.display    = (modo === 'cbf')    ? 'block' : 'none';
+    document.getElementById('panel-smooth-slider').style.display = (modo === 'smooth') ? 'block' : 'none';
     if (ws && ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ tipo: 'modo_control', valor: modo }));
 }

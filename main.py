@@ -34,12 +34,17 @@ LIMITE = 20.0
 UMBRALES = {
     'manual': 0.0,   # sin control — no interviene
     'lrf':    2.2,   # LRF (Least Restrictive Filter)
-    'cbf':    2.2,   # CBF (Control Barrier Function)
+    'cbf':    2.2,   # CBF+HJ (Control Barrier Function)
+    'smooth': 2.2,   # Smooth Blending Filter
     'apf':    3.0,   # APF (Artificial Potential Field)
 }
 
 # Parámetro alpha del CBF
 CBF_ALPHA = 1.0
+
+# Parámetros Smooth Blending Filter (valores del paper)
+SMOOTH_ALPHA   = 1.8
+SMOOTH_EPSILON = 0.08
 
 obstaculos_rect = [
     {"x":  10.0, "y": 14.0,  "w": 12.0, "h": 4.0,  "ang": 0},
@@ -174,6 +179,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 CBF_ALPHA = float(mensaje["valor"])
                 print(f"CBF gamma actualizado: {CBF_ALPHA}")
 
+            elif mensaje["tipo"] == "smooth_alpha":
+                global SMOOTH_ALPHA
+                SMOOTH_ALPHA = float(mensaje["valor"])
+                print(f"Smooth alpha actualizado: {SMOOTH_ALPHA}")
+
             elif mensaje["tipo"] == "reset":
                 robot.reset(x=0.0, y=0.0, theta=0.0)
                 controller.reset()
@@ -212,6 +222,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif modo_control == 'cbf' and hjr_listo:
                     resultado = hjr_instance.obtener_control_cbf(
                         robot.x, robot.y, theta_deg, w, alpha=CBF_ALPHA
+                    )
+                    control_info = resultado
+                    if resultado["V"] < umbral:
+                        w = resultado["w"]
+
+                elif modo_control == 'smooth' and hjr_listo:
+                    resultado = hjr_instance.obtener_control_smooth_blend(
+                        robot.x, robot.y, theta_deg, w,
+                        alpha=SMOOTH_ALPHA, epsilon=SMOOTH_EPSILON
                     )
                     control_info = resultado
                     if resultado["V"] < umbral:
