@@ -35,15 +35,14 @@ UMBRALES = {
     'manual': 0.0,   # sin control — no interviene
     'lrf':    2.2,   # LRF (Least Restrictive Filter)
     'cbf':    2.2,   # CBF+HJ (Control Barrier Function)
-    'smooth': 2.2,   # Smooth Blending Filter
+    'smooth_lr': 2.2,   # SmoothLR — High Order CBF
     'apf':    3.0,   # APF (Artificial Potential Field)
 }
 
 # Parámetro alpha del CBF
 CBF_ALPHA = 1.0
 
-# Parámetros Smooth Blending Filter (valores del paper)
-SMOOTH_ALPHA   = 1.8
+# Parámetro epsilon para SmoothLR (valor del paper)
 SMOOTH_EPSILON = 0.08
 
 obstaculos_rect = [
@@ -179,10 +178,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 CBF_ALPHA = float(mensaje["valor"])
                 print(f"CBF gamma actualizado: {CBF_ALPHA}")
 
-            elif mensaje["tipo"] == "smooth_alpha":
-                global SMOOTH_ALPHA
-                SMOOTH_ALPHA = float(mensaje["valor"])
-                print(f"Smooth alpha actualizado: {SMOOTH_ALPHA}")
+            elif mensaje["tipo"] == "smooth_epsilon":
+                global SMOOTH_EPSILON
+                SMOOTH_EPSILON = float(mensaje["valor"])
+                print(f"SmoothLR epsilon actualizado: {SMOOTH_EPSILON}")
 
             elif mensaje["tipo"] == "reset":
                 robot.reset(x=0.0, y=0.0, theta=0.0)
@@ -227,10 +226,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     if resultado["V"] < umbral:
                         w = resultado["w"]
 
-                elif modo_control == 'smooth' and hjr_listo:
-                    resultado = hjr_instance.obtener_control_smooth_blend(
+                elif modo_control == 'smooth_lr' and hjr_listo:
+                    resultado = hjr_instance.obtener_control_smooth_lr(
                         robot.x, robot.y, theta_deg, w,
-                        alpha=SMOOTH_ALPHA, epsilon=SMOOTH_EPSILON
+                        epsilon=SMOOTH_EPSILON
                     )
                     control_info = resultado
                     if resultado["V"] < umbral:

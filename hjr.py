@@ -162,24 +162,49 @@ class DubinsHJR:
         }
 
 
-    def obtener_control_smooth_blend(self, x, y, theta_deg, w_usuario, alpha=1.8, epsilon=0.08):
+    def _derivada_unilateral_theta(self, x, y, theta_rad):
         """
-        Smooth Blending Filter — basado en el paper:
-        "On Safety and Liveness Filtering Using Hamilton-Jacobi Reachability Analysis"
+        Calcula derivadas unilaterales izquierda y derecha de V respecto a theta
+        usando diferencias finitas de 4 puntos — basado en dval_dth del MATLAB.
+        Necesario cuando el gradiente central falla (QP infeasible).
+        """
+        Nx, Ny, Ntheta = len(self.xs), len(self.ys), len(self.thetas)
+        fi = (x - self.xs[0]) / (self.xs[-1] - self.xs[0]) * (Nx - 1)
+        fj = (y - self.ys[0]) / (self.ys[-1] - self.ys[0]) * (Ny - 1)
+        fk = (theta_rad - self.thetas[0]) / (self.thetas[-1] - self.thetas[0]) * (Ntheta - 1)
 
-        Resuelve el QP:
-            min  (w - w_usuario)²
-            s.t. -dV/dtheta · w ≤ dV/dx·v·cos(θ) + dV/dy·v·sin(θ) + alpha·V - epsilon
-                 -w_max ≤ w ≤ w_max
+        i = int(np.clip(np.round(fi), 0, Nx - 1))
+        j = int(np.clip(np.round(fj), 0, Ny - 1))
+        k = int(np.clip(np.round(fk), 0, Ntheta - 1))
 
-        Equivale al caso 'SmoothBlend' del MATLAB de referencia:
-            A = -deriv_now' * gx
-            b =  deriv_now' * fx + alpha * value_now - epsilon
-            u  = lsqlin(1, u_nom, A, b, [], [], wRange(1), wRange(2))
+        dtheta = self.thetas[1] - self.thetas[0]
 
-        Parámetros:
-            alpha:   controla la tasa de decaimiento (1.8 según paper)
-            epsilon: tolerancia de holgura (0.08 según paper)
+        # Índices periódicos en theta
+        def idx(k_offset):
+            return int((k + k_offset) % Ntheta)
+
+        V = self.data[-1, i, j, :]
+
+        # Derivada derecha (4 puntos, orden 3)
+        R_dval = ((-11/6)*V[idx(0)] + 3*V[idx(1)]
+                  + (-3/2)*V[idx(2)] + (1/3)*V[idx(3)]) / dtheta
+
+        # Derivada izquierda (4 puntos, orden 3)
+        L_dval = ((11/6)*V[idx(0)] - 3*V[idx(-1)]
+                  + (3/2)*V[idx(-2)] + (-1/3)*V[idx(-3)]) / dtheta
+
+        return float(R_dval), float(L_dval)
+
+    def obtener_control_smooth_lr(self, x, y, theta_deg, w_usuario, epsilon=0.08):
+        """
+        SmoothLR (Smooth Least Restrictive) — High Order CBF.
+        Basado en el caso 'SmoothLR' del MATLAB de referencia.
+
+        Igual que CBF+HJ pero con manejo de infeasibilidad:
+        cuando el QP no tiene solución con el gradiente central,
+        usa derivadas unilaterales de orden superior en theta.
+
+        Solo activa cuando V <= epsilon.
         """
         theta_rad = np.radians(theta_deg)
         i, j, k  = self._interpolar_estado(x, y, theta_rad)
@@ -189,54 +214,66 @@ class DubinsHJR:
         dVdy     = float(self.dVdy[i, j, k])
         dVdtheta = float(self.dVdtheta[i, j, k])
 
-        # Término libre: deriv_now' * fx + alpha * V - epsilon
-        # fx = [v·cos(θ), v·sin(θ), 0] para Dubins Car
-        Lf_V = dVdx * self.speed * np.cos(theta_rad) +                dVdy * self.speed * np.sin(theta_rad)
+        # Fuera del BRT — control total al usuario
+        if V > epsilon:
+            return {
+                "V":           round(V, 4),
+                "dVdtheta":    round(dVdtheta, 4),
+                "w_usuario":   round(float(w_usuario), 4),
+                "w":           round(float(w_usuario), 4),
+                "peligroso":   False,
+                "intervenido": False,
+                "ho_usado":    False
+            }
 
-        rhs = Lf_V + alpha * V - epsilon
+        # Término libre: dV/dx·v·cos(θ) + dV/dy·v·sin(θ) - epsilon
+        Lf_V = (dVdx * self.speed * np.cos(theta_rad) +
+                dVdy * self.speed * np.sin(theta_rad))
+        rhs = Lf_V - epsilon
 
-        # Restricción: -dVdtheta · w ≤ rhs
-        # → A · w ≤ b  donde A = -dVdtheta, b = rhs
-        # Solución analítica del QP 1D:
-        w = float(w_usuario)
-
-        if abs(dVdtheta) < 1e-6:
-            # Sin influencia del control en V — mantener w del usuario
-            w_final = w
-            intervenido = False
-        else:
-            # Límite impuesto por la restricción
-            w_limite = rhs / (-dVdtheta) if dVdtheta != 0 else None
-
-            if dVdtheta > 0:
-                # A = -dVdtheta < 0 → restricción: w ≥ rhs/(-dVdtheta)
-                # Proyectar al mínimo permitido si el usuario está por debajo
-                if w_limite is not None and w < w_limite:
-                    w = w_limite
-                    intervenido = True
-                else:
-                    intervenido = False
+        # QP: -dVdtheta · w ≤ rhs
+        # Solución analítica
+        def resolver_qp(dVdt, rhs_val, w_nom):
+            if abs(dVdt) < 1e-6:
+                return None  # infeasible
+            w_lim = -rhs_val / dVdt
+            if dVdt > 0:
+                # restricción w ≥ -rhs/dVdtheta
+                w = max(w_nom, w_lim)
             else:
-                # A = -dVdtheta > 0 → restricción: w ≤ rhs/(-dVdtheta)
-                if w_limite is not None and w > w_limite:
-                    w = w_limite
-                    intervenido = True
-                else:
-                    intervenido = False
+                # restricción w ≤ -rhs/dVdtheta
+                w = min(w_nom, w_lim)
+            return float(np.clip(w, -self.w_max, self.w_max))
 
-        # Clampear al rango permitido
-        w_final = float(np.clip(w, -self.w_max, self.w_max))
+        w_final  = resolver_qp(dVdtheta, rhs, w_usuario)
+        ho_usado = False
+
+        # Si QP infeasible — usar derivada unilateral de orden superior
+        if w_final is None:
+            _, L_dval = self._derivada_unilateral_theta(x, y, theta_rad)
+            w_final   = resolver_qp(L_dval, Lf_V, w_usuario)
+            ho_usado  = True
+            if w_final is None:
+                # Último recurso: control seguro LRF
+                w_lrf   = self.w_max * np.sign(dVdtheta) if dVdtheta != 0 else 0.0
+                w_final = float(w_lrf)
+
+        intervenido = abs(w_final - float(w_usuario)) > 1e-4
 
         return {
-            "V":          round(V, 4),
-            "dVdtheta":   round(dVdtheta, 4),
-            "w_usuario":  round(float(w_usuario), 4),
-            "w":          round(w_final, 4),
-            "peligroso":  V < 0,
-            "intervenido": intervenido
+            "V":           round(V, 4),
+            "dVdtheta":    round(dVdtheta, 4),
+            "w_usuario":   round(float(w_usuario), 4),
+            "w":           round(w_final, 4),
+            "peligroso":   V < 0,
+            "intervenido": intervenido,
+            "ho_usado":    ho_usado   # True cuando se usaron derivadas de orden superior
         }
 
     # Mantener compatibilidad con código anterior
+    def obtener_control_bangbang(self, x, y, theta_deg):
+        return self.obtener_control_lrf(x, y, theta_deg)
+
     def obtener_control_bangbang(self, x, y, theta_deg):
         return self.obtener_control_lrf(x, y, theta_deg)
 

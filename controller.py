@@ -22,10 +22,9 @@ class Controller:
             self.activo = True
 
     def detener(self):
-        """Detiene completamente el robot y resetea el giro."""
+        """Detiene el movimiento pero mantiene el giro para poder orientar."""
         self.activo = False
         self.v      = 0.0
-        self.w      = 0.0
 
     def reset(self):
         """Reinicia el controlador al estado inicial."""
@@ -34,10 +33,10 @@ class Controller:
         self.activo = False
 
     def obtener_comandos(self):
-        """Devuelve los valores actuales de velocidad."""
+        """Devuelve los valores actuales de velocidad y giro."""
         if self.activo:
             self.v = self.v_fija
         else:
             self.v = 0.0
-            self.w = 0.0  # resetear giro cuando está detenido
+            # No resetear w — permite girar estando detenido
         return round(self.v, 3), round(self.w, 3)
