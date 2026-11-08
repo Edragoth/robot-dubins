@@ -7,6 +7,7 @@ from planner import DubinsPlanner
 from controller import Controller
 from hjr import DubinsHJR
 from apf import APF
+from cbf_sdf import CBFSDF
 import json
 import math
 import asyncio
@@ -34,16 +35,18 @@ LIMITE = 20.0
 UMBRALES = {
     'manual': 0.0,   # sin control — no interviene
     'lrf':    2.2,   # LRF (Least Restrictive Filter)
-    'cbf':    2.2,   # CBF+HJ (Control Barrier Function)
-    'smooth_lr': 2.2,   # SmoothLR — High Order CBF
+    'cbf_hj': 2.2,   # CBF+HJ (QP sobre el BRT de HJ)
+    'cbf':    0.0,   # CBF (HOCBF sobre la SDF): el QP decide cuándo interviene, no usa umbral
     'apf':    3.0,   # APF (Artificial Potential Field)
 }
 
 # Parámetro alpha del CBF
 CBF_ALPHA = 1.0
 
-# Parámetro epsilon para SmoothLR (valor del paper)
-SMOOTH_EPSILON = 0.08
+# Parámetros del CBF (HOCBF sobre la SDF)
+CBF_A1     = 1.0   # alpha1: ganancia de la barrera
+CBF_A2     = 1.0   # alpha2: ganancia de la derivada
+CBF_MARGEN = 1.0   # margen de seguridad en metros (mantener igual que CBF_MARGEN en index.html)
 
 obstaculos_rect = [
     {"x":  10.0, "y": 14.0,  "w": 12.0, "h": 4.0,  "ang": 0},
@@ -59,6 +62,7 @@ hjr_instance   = None
 hjr_listo      = False
 hjr_calculando = False
 apf_instance   = APF(speed=5.0, w_max=1.3, eta=1.0, d0=5.0)
+cbf_instance   = CBFSDF(speed=5.0, w_max=1.3, limite=LIMITE)
 
 # Modo de control activo
 modo_control = 'manual'
@@ -138,15 +142,18 @@ async def obtener_control(x: float = 0.0, y: float = 0.0, theta: float = 0.0, mo
     """Retorna el control de seguridad para la posición dada."""
     if modo == "apf":
         return apf_instance.obtener_control_apf(x, y, theta, w_usuario)
+    if modo == "cbf":   # theta llega en grados
+        return cbf_instance.obtener_control(x, y, math.radians(theta), w_usuario,
+                                            alpha1=CBF_A1, alpha2=CBF_A2, margen=CBF_MARGEN)
     if not hjr_listo:
         return {"error": "HJR aún calculando"}
-    if modo == "cbf":
+    if modo == "cbf_hj":
         return hjr_instance.obtener_control_cbf(x, y, theta, w_usuario, alpha=CBF_ALPHA)
     return hjr_instance.obtener_control_lrf(x, y, theta)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    global trayectoria, modo_control
+    global trayectoria, modo_control, CBF_ALPHA, CBF_A1, CBF_A2
     await websocket.accept()
     try:
         while True:
@@ -174,14 +181,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 print(f"APF eta actualizado: {apf_instance.eta}")
 
             elif mensaje["tipo"] == "cbf_gamma":
-                global CBF_ALPHA
                 CBF_ALPHA = float(mensaje["valor"])
-                print(f"CBF gamma actualizado: {CBF_ALPHA}")
+                print(f"CBF+HJ gamma actualizado: {CBF_ALPHA}")
 
-            elif mensaje["tipo"] == "smooth_epsilon":
-                global SMOOTH_EPSILON
-                SMOOTH_EPSILON = float(mensaje["valor"])
-                print(f"SmoothLR epsilon actualizado: {SMOOTH_EPSILON}")
+            elif mensaje["tipo"] == "cbf_params":
+                CBF_A1 = float(mensaje["a1"])
+                CBF_A2 = float(mensaje["a2"])
+                print(f"CBF alpha1={CBF_A1}, alpha2={CBF_A2}")
 
             elif mensaje["tipo"] == "reset":
                 robot.reset(x=0.0, y=0.0, theta=0.0)
@@ -218,7 +224,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         w = resultado["w"]
                         control_info["intervenido"] = True
 
-                elif modo_control == 'cbf' and hjr_listo:
+                elif modo_control == 'cbf_hj' and hjr_listo:
                     resultado = hjr_instance.obtener_control_cbf(
                         robot.x, robot.y, theta_deg, w, alpha=CBF_ALPHA
                     )
@@ -226,14 +232,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     if resultado["V"] < umbral:
                         w = resultado["w"]
 
-                elif modo_control == 'smooth_lr' and hjr_listo:
-                    resultado = hjr_instance.obtener_control_smooth_lr(
-                        robot.x, robot.y, theta_deg, w,
-                        epsilon=SMOOTH_EPSILON
+                elif modo_control == 'cbf':
+                    # HOCBF sobre la SDF: el QP deja pasar w del usuario cuando es seguro
+                    resultado = cbf_instance.obtener_control(
+                        robot.x, robot.y, robot.theta, w,
+                        alpha1=CBF_A1, alpha2=CBF_A2, margen=CBF_MARGEN
                     )
                     control_info = resultado
-                    if resultado["V"] < umbral:
-                        w = resultado["w"]
+                    w = resultado["w"]
 
                 elif modo_control == 'apf':
                     resultado = apf_instance.obtener_control_apf(

@@ -41,6 +41,7 @@
         .badge-moviendo  { background: #1a4a7a; color: #7fbfff; }
         .badge-seguro    { background: #2d6a2d; color: #7fff7f; }
         .badge-peligroso { background: #8b0000; color: #ffaaaa; }
+        .badge-neutro    { background: #3a3a3a; color: #aaaaaa; }
 
         /* Filas de datos */
         .dato-fila { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #333; font-size: 12px; }
@@ -108,7 +109,7 @@
                 <div class="hjr-estado" id="hjr-estado-txt">⏳ Loading BRT...</div>
             </div>
 
-            <div class="caja">
+            <div class="caja" id="caja-leyenda" style="display:none;">
                 <h3>Legend</h3>
                 <div class="leyenda"><div class="leyenda-color" style="background:rgba(220,20,20,0.8)"></div><span>Dangerous</span></div>
                 <div class="leyenda" style="margin-top:4px;"><div class="leyenda-color" style="background:rgba(144,238,144,0.5)"></div><span>Safe</span></div>
@@ -166,19 +167,23 @@
                 <h3>Control mode</h3>
                 <button class="control-btn activo"    id="btn-sin-control" onclick="cambiarModoControl('manual')">🕹️ No control</button>
                 <button class="control-btn"           id="btn-lrf"    onclick="cambiarModoControl('lrf')">🛡️ LRF</button>
-                <button class="control-btn"           id="btn-cbf"    onclick="cambiarModoControl('cbf')">🔬 CBF+HJ</button>
-                <div id="panel-cbf-slider" style="display:none; margin-top:8px;">
+                <button class="control-btn"           id="btn-cbf-hj" onclick="cambiarModoControl('cbf_hj')">🔬 CBF+HJ</button>
+                <div id="panel-cbf-hj-slider" style="display:none; margin-top:8px;">
                     <label style="font-size:11px; color:#aaa;">Gamma (α): <span id="cbf-gamma-val">1.0</span></label>
                     <input type="range" id="cbf-gamma-slider" min="0.1" max="5.0" step="0.1" value="1.0"
                         style="width:100%; accent-color:#7fbfff; margin-top:4px;"
                         oninput="actualizarGammaCBF()">
                 </div>
-                <button class="control-btn"           id="btn-smooth-lr"  onclick="cambiarModoControl('smooth_lr')">📐 SmoothLR</button>
-                <div id="panel-smooth-lr-slider" style="display:none; margin-top:8px;">
-                    <label style="font-size:11px; color:#aaa;">Epsilon (ε): <span id="smooth-epsilon-val">0.08</span></label>
-                    <input type="range" id="smooth-epsilon-slider" min="0.01" max="2.0" step="0.01" value="0.08"
+                <button class="control-btn"           id="btn-cbf"    onclick="cambiarModoControl('cbf')">📐 CBF</button>
+                <div id="panel-cbf-slider" style="display:none; margin-top:8px;">
+                    <label style="font-size:11px; color:#aaa;">α₁ (barrier gain): <span id="cbf-a1-val">1.0</span></label>
+                    <input type="range" id="cbf-a1-slider" min="0.2" max="3.0" step="0.1" value="1.0"
                         style="width:100%; accent-color:#b07fff; margin-top:4px;"
-                        oninput="actualizarEpsilonSmoothLR()">
+                        oninput="actualizarCBFParams()">
+                    <label style="font-size:11px; color:#aaa; display:block; margin-top:8px;">α₂ (derivative gain): <span id="cbf-a2-val">1.0</span></label>
+                    <input type="range" id="cbf-a2-slider" min="0.2" max="3.0" step="0.1" value="1.0"
+                        style="width:100%; accent-color:#b07fff; margin-top:4px;"
+                        oninput="actualizarCBFParams()">
                 </div>
                 <button class="control-btn"           id="btn-apf"    onclick="cambiarModoControl('apf')">🧲 APF</button>
                 <div id="panel-apf-slider" style="display:none; margin-top:8px;">
@@ -222,10 +227,23 @@ let hjrPollTimer = null;
 // Modo de control activo
 let modoControl = 'manual';
 let apfEta   = 1.0;  // intensidad campo APF
-let cbfGamma  = 1.0;  // parámetro gamma/alpha del CBF
+let cbfGamma  = 1.0;  // parámetro gamma/alpha del CBF+HJ
+let cbfA1     = 1.0;  // CBF (HOCBF sobre SDF): ganancia de la barrera
+let cbfA2     = 1.0;  // CBF (HOCBF sobre SDF): ganancia de la derivada
+const CBF_MARGEN = 1.0;  // metros — mantener igual que CBF_MARGEN en main.py
 let giroActivo   = 0;     // estado actual del giro: -1.3, 0, o 1.3
 let ultimoGiroMs = 0;     // timestamp del último comando de giro
 const GIRO_DEBOUNCE = 150; // ms mínimo entre comandos de giro
+
+function actualizarCBFParams() {
+    cbfA1 = parseFloat(document.getElementById('cbf-a1-slider').value);
+    cbfA2 = parseFloat(document.getElementById('cbf-a2-slider').value);
+    document.getElementById('cbf-a1-val').textContent = cbfA1.toFixed(1);
+    document.getElementById('cbf-a2-val').textContent = cbfA2.toFixed(1);
+    if (ws && ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ tipo: 'cbf_params', a1: cbfA1, a2: cbfA2 }));
+    dibujar();
+}
 
 function actualizarGammaCBF() {
     cbfGamma = parseFloat(document.getElementById('cbf-gamma-slider').value);
@@ -236,16 +254,22 @@ function actualizarGammaCBF() {
 
 function cambiarModoControl(modo) {
     modoControl = modo;
-    document.getElementById('btn-sin-control').className = 'control-btn' + (modo === 'manual'  ? ' activo' : '');
-    document.getElementById('btn-lrf').className         = 'control-btn' + (modo === 'lrf'    ? ' activo-control' : '');
-    document.getElementById('btn-cbf').className         = 'control-btn' + (modo === 'cbf'    ? ' activo-control' : '');
-    document.getElementById('btn-smooth-lr').className   = 'control-btn' + (modo === 'smooth_lr' ? ' activo-control' : '');
-    document.getElementById('btn-apf').className         = 'control-btn' + (modo === 'apf'    ? ' activo-control' : '');
-    document.getElementById('panel-apf-slider').style.display    = (modo === 'apf')    ? 'block' : 'none';
+    const mapa = { manual: 'btn-sin-control', lrf: 'btn-lrf', cbf_hj: 'btn-cbf-hj', cbf: 'btn-cbf', apf: 'btn-apf' };
+    for (const [m, id] of Object.entries(mapa)) {
+        let clase = 'control-btn';
+        if (m === modo) clase += (m === 'manual') ? ' activo' : ' activo-control';
+        document.getElementById(id).className = clase;
+    }
+    document.getElementById('panel-cbf-hj-slider').style.display = (modo === 'cbf_hj') ? 'block' : 'none';
     document.getElementById('panel-cbf-slider').style.display    = (modo === 'cbf')    ? 'block' : 'none';
-    document.getElementById('panel-smooth-lr-slider').style.display = (modo === 'smooth_lr') ? 'block' : 'none';
+    document.getElementById('panel-apf-slider').style.display    = (modo === 'apf')    ? 'block' : 'none';
+    // Sin filtro no hay set seguro que explicar
+    document.getElementById('caja-leyenda').style.display        = (modo === 'manual') ? 'none' : 'block';
+    // El BRT solo se usa en los modos basados en HJ: forzar nueva descarga al entrar
+    thetaUltimoFetch = null;
     if (ws && ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ tipo: 'modo_control', valor: modo }));
+    dibujar();
 }
 
 // Control del BRT dinámico
@@ -374,7 +398,7 @@ function conectar() {
         }
 
         // Actualizar BRT si el ángulo cambió más de 5°
-        if (hjrListo && !fetchEnCurso) {
+        if (hjrListo && !fetchEnCurso && (modoControl === 'lrf' || modoControl === 'cbf_hj')) {
             const thetaDegRedondeado = redondearTheta(estadoActual.theta);
             if (thetaDegRedondeado !== thetaUltimoFetch) {
                 thetaUltimoFetch = thetaDegRedondeado;
@@ -382,37 +406,34 @@ function conectar() {
             }
         }
 
-        // Mostrar valor BRT
-        const brtVal = valorBRTenPosicion(estadoActual.x, estadoActual.y);
-        // Actualizar label según modo
+        // Panel de valores según el filtro activo
+        const modo     = data.modo_control;
         const brtLabel = document.getElementById("s-brt-label");
-        if (brtLabel) brtLabel.textContent = (data.modo_control === 'apf') ? 'Force mag.' : 'BRT value';
+        const brtEl    = document.getElementById("s-brt");
+        const etiquetas = { manual: 'Filter value', lrf: 'BRT value', cbf_hj: 'BRT value', cbf: 'ψ₁ (HOCBF)', apf: 'Force mag.' };
+        brtLabel.textContent = etiquetas[modo] ?? 'Filter value';
 
-        const brtEl  = document.getElementById("s-brt");
-        if (brtVal !== null && data.modo_control !== 'apf') {
-            brtEl.textContent = brtVal.toFixed(3);
-            brtEl.style.color = brtVal < 0 ? "#ff4444" : "#7fff7f";
-            const badgeP = document.getElementById("badge-peligro");
-            if (brtVal < 0) {
-                badgeP.textContent = "⚠️ Danger";
-                badgeP.className   = "estado-badge badge-peligroso";
-            } else {
-                badgeP.textContent = "✅ Safe";
-                badgeP.className   = "estado-badge badge-seguro";
-            }
-        } else if (data.modo_control === 'apf') {
-            const fmag = data.V !== undefined ? data.V : 0;
-            brtEl.textContent = (data.f_mag !== undefined ? data.f_mag : fmag).toFixed(3);
+        if (modo === 'apf') {
+            brtEl.textContent = (data.f_mag ?? 0).toFixed(3);
             brtEl.style.color = "#e8a030";
+            setBadgePeligro(null, "Force field");
         } else {
-            brtEl.textContent = "—";
-            brtEl.style.color = "#aaa";
+            const val = valorFiltroActual();
+            if (val === null) {
+                brtEl.textContent = "—";
+                brtEl.style.color = "#aaa";
+                setBadgePeligro(null, modo === 'manual' ? "No filter" : "—");
+            } else {
+                brtEl.textContent = val.toFixed(3);
+                brtEl.style.color = val < 0 ? "#ff4444" : "#7fff7f";
+                setBadgePeligro(val < 0);
+            }
         }
 
-        // Mostrar W control bang-bang
+        // W aplicado por el filtro (solo cuando interviene)
         const wCtrlEl = document.getElementById("s-wctrl");
-        if (data.modo_control === 'lrf' && data.peligroso) {
-            wCtrlEl.textContent = (data.w_control?.toFixed(2) ?? "—") + " rad/s";
+        if (modo !== 'manual' && data.intervenido) {
+            wCtrlEl.textContent = (data.w_control ?? 0).toFixed(2) + " rad/s";
             wCtrlEl.style.color = "#ffaaaa";
         } else {
             wCtrlEl.textContent = "—";
@@ -433,6 +454,106 @@ function iniciarLoop() {
     }, 100);
 }
 
+
+// ---- Valor de la barrera del filtro activo ----
+function valorFiltroActual() {
+    if (modoControl === 'lrf' || modoControl === 'cbf_hj')
+        return valorBRTenPosicion(estadoActual.x, estadoActual.y);
+    if (modoControl === 'cbf')
+        return psi1CBF(estadoActual.x, estadoActual.y, estadoActual.theta);
+    return null;   // 'manual' y 'apf' no definen set seguro
+}
+
+function setBadgePeligro(peligro, textoNeutro) {
+    const b = document.getElementById("badge-peligro");
+    if (peligro === null) {
+        b.textContent = textoNeutro ?? "—";
+        b.className   = "estado-badge badge-neutro";
+    } else if (peligro) {
+        b.textContent = "⚠️ Danger";
+        b.className   = "estado-badge badge-peligroso";
+    } else {
+        b.textContent = "✅ Safe";
+        b.className   = "estado-badge badge-seguro";
+    }
+}
+
+// ---- CBF (HOCBF sobre la SDF) ----
+// SDF de la unión de peligros = mínimo. Devuelve [d, nx, ny] (n = gradiente de la SDF).
+function sdfInfo(px, py) {
+    let best = [LIMITE - Math.max(Math.abs(px), Math.abs(py)), 0, 0];
+    if (Math.abs(px) >= Math.abs(py)) best[1] = (px >= 0) ? -1 : 1;
+    else                              best[2] = (py >= 0) ? -1 : 1;
+
+    obstaculos_rect.forEach(o => {
+        const dx = px - o.x, dy = py - o.y;
+        const qx = Math.abs(dx) - o.w / 2, qy = Math.abs(dy) - o.h / 2;
+        const sx = dx >= 0 ? 1 : -1, sy = dy >= 0 ? 1 : -1;
+        let d, nx, ny;
+        if (qx > 0 || qy > 0) {                       // fuera
+            const ox = Math.max(qx, 0), oy = Math.max(qy, 0);
+            d = Math.hypot(ox, oy);
+            if (d < 1e-9) { nx = qx > qy ? sx : 0; ny = qx > qy ? 0 : sy; }
+            else          { nx = sx * ox / d;      ny = sy * oy / d; }
+        } else {                                      // dentro
+            d = Math.max(qx, qy);
+            if (qx > qy) { nx = sx; ny = 0; } else { nx = 0; ny = sy; }
+        }
+        if (d < best[0]) best = [d, nx, ny];
+    });
+
+    obstaculos_circ.forEach(o => {
+        const dx = px - o.x, dy = py - o.y, dc = Math.hypot(dx, dy);
+        const d = dc - o.r;
+        if (d < best[0]) best = (dc < 1e-9) ? [d, 1, 0] : [d, dx / dc, dy / dc];
+    });
+    return best;
+}
+
+// psi1 = h' + alpha1 * h   con  h = SDF - margen  y  h' = v * (n . u)
+function psi1CBF(px, py, theta) {
+    const [d, nx, ny] = sdfInfo(px, py);
+    const h = d - CBF_MARGEN;
+    return V_FIJA * (nx * Math.cos(theta) + ny * Math.sin(theta)) + cbfA1 * h;
+}
+
+// Campo psi1(x,y | theta) a baja resolución, escalado suave y cacheado
+let cbfCache = null, cbfCacheKey = '';
+function dibujarCampoCBF() {
+    const th5 = redondearTheta(estadoActual.theta);     // grados, múltiplos de 5
+    const key = th5 + '|' + cbfA1;
+    if (!cbfCache || key !== cbfCacheKey) {
+        const theta = th5 * Math.PI / 180;
+        const RES = 100;   // al girar se reconstruye cada ~5 grados: 100x100 mantiene el coste bajo
+        const small = document.createElement('canvas');
+        small.width = RES; small.height = RES;
+        const sctx = small.getContext('2d');
+        const img  = sctx.createImageData(RES, RES);
+        for (let i = 0; i < RES; i++) {
+            for (let j = 0; j < RES; j++) {
+                const wx =  ((i + 0.5) / RES - 0.5) * 2 * LIMITE;
+                const wy = -((j + 0.5) / RES - 0.5) * 2 * LIMITE;
+                const p = psi1CBF(wx, wy, theta);
+                const k = (j * RES + i) * 4;
+                if (p < 0) {
+                    const inten = Math.min(1.0, Math.abs(p) / 5.0);
+                    img.data[k] = 220; img.data[k+1] = 20; img.data[k+2] = 20;
+                    img.data[k+3] = Math.round((0.55 + inten * 0.45) * 255);
+                } else {
+                    img.data[k] = 144; img.data[k+1] = 238; img.data[k+2] = 144; img.data[k+3] = 50;
+                }
+            }
+        }
+        sctx.putImageData(img, 0, 0);
+        const off = document.createElement('canvas');
+        off.width = W; off.height = H;
+        const octx = off.getContext('2d');
+        octx.imageSmoothingEnabled = true;
+        octx.drawImage(small, 0, 0, W, H);
+        cbfCache = off; cbfCacheKey = key;
+    }
+    ctx.drawImage(cbfCache, 0, 0);
+}
 
 // ---- APF Field Visualization ----
 function calcularFuerzaAPF(px, py, eta, d0, etaMuro, d0Muro) {
@@ -491,87 +612,75 @@ function calcularFuerzaAPF(px, py, eta, d0, etaMuro, d0Muro) {
     return [fx, fy, Math.min(fmag, F_MAX)];
 }
 
-function dibujarCampoAPF() {
-    const eta     = apfEta;
-    const d0      = 8.0;
-    const etaMuro = 3.0;
-    const d0Muro  = 12.0;
-    const F_MAX   = 10.0;
+let apfCache = null, apfCacheEta = null;
 
-    // --- Mapa de calor suave ---
-    const imageData = ctx.createImageData(W, H);
-    const data = imageData.data;
+function construirCacheAPF() {
+    const eta = apfEta, d0 = 8.0, etaMuro = 3.0, d0Muro = 12.0, F_MAX = 10.0;
+    const off = document.createElement('canvas');
+    off.width = W; off.height = H;
+    const octx = off.getContext('2d');
 
-    for (let px = 0; px < W; px++) {
-        for (let py = 0; py < H; py++) {
-            const wx =  (px - W/2) / ESCALA;
-            const wy = -(py - H/2) / ESCALA;
+    // --- Mapa de calor suave: 150x150 celdas escaladas a 600x600 ---
+    const RES = 150;
+    const small = document.createElement('canvas');
+    small.width = RES; small.height = RES;
+    const sctx = small.getContext('2d');
+    const img  = sctx.createImageData(RES, RES);
+    for (let i = 0; i < RES; i++) {
+        for (let j = 0; j < RES; j++) {
+            const wx =  ((i + 0.5) / RES - 0.5) * 2 * LIMITE;
+            const wy = -((j + 0.5) / RES - 0.5) * 2 * LIMITE;
             const [,, fmag] = calcularFuerzaAPF(wx, wy, eta, d0, etaMuro, d0Muro);
             const t = Math.min(1.0, fmag / F_MAX);
-            const idx4 = (py * W + px) * 4;
-            // Gradiente suave: azul muy claro → naranja tenue
-            data[idx4]   = Math.round(210 + t * 30);   // R: 210→240
-            data[idx4+1] = Math.round(230 - t * 80);   // G: 230→150
-            data[idx4+2] = Math.round(245 - t * 130);  // B: 245→115
-            data[idx4+3] = Math.round(40  + t * 120);  // A: 40→160
+            const k = (j * RES + i) * 4;
+            img.data[k]   = Math.round(210 + t * 30);    // R: 210 -> 240
+            img.data[k+1] = Math.round(230 - t * 80);    // G: 230 -> 150
+            img.data[k+2] = Math.round(245 - t * 130);   // B: 245 -> 115
+            img.data[k+3] = Math.round(40  + t * 120);   // A: 40  -> 160
         }
     }
-    ctx.putImageData(imageData, 0, 0);
+    sctx.putImageData(img, 0, 0);
+    octx.imageSmoothingEnabled = true;
+    octx.drawImage(small, 0, 0, W, H);
 
-    // --- Flechas en grilla ---
-    const PASOS = 18;
-    const paso_x = W / PASOS;
-    const paso_y = H / PASOS;
-
+    // --- Flechas en grilla 18x18 ---
+    const PASOS = 18, paso = W / PASOS;
     for (let gi = 0; gi < PASOS; gi++) {
         for (let gj = 0; gj < PASOS; gj++) {
-            const cpx = (gi + 0.5) * paso_x;
-            const cpy = (gj + 0.5) * paso_y;
-            const wx  =  (cpx - W/2) / ESCALA;
-            const wy  = -(cpy - H/2) / ESCALA;
-
+            const cpx = (gi + 0.5) * paso, cpy = (gj + 0.5) * paso;
+            const wx  =  (cpx - W / 2) / ESCALA;
+            const wy  = -(cpy - H / 2) / ESCALA;
             const [fx, fy, fmag] = calcularFuerzaAPF(wx, wy, eta, d0, etaMuro, d0Muro);
             if (fmag < 0.01) continue;
 
-            const t      = Math.min(1.0, fmag / F_MAX);
-            const largo  = Math.min(paso_x * 0.42, paso_x * 0.1 + t * paso_x * 0.32);
-            const dirX   =  fx / fmag;
-            const dirY   = -fy / fmag; // invertir Y para canvas
+            const t     = Math.min(1.0, fmag / F_MAX);
+            const largo = Math.min(paso * 0.42, paso * 0.1 + t * paso * 0.32);
+            const x2 = cpx + (fx / fmag) * largo;
+            const y2 = cpy - (fy / fmag) * largo;           // eje Y invertido en canvas
 
-            const x2 = cpx + dirX * largo;
-            const y2 = cpy + dirY * largo;
+            const r = Math.round(120 + t * 100), g = Math.round(140 - t * 40), b = Math.round(180 - t * 80);
+            const col = `rgba(${r},${g},${b},${(0.5 + t * 0.4).toFixed(2)})`;
 
-            // Color flecha: gris azulado suave → naranja tenue
-            const r = Math.round(120 + t * 100);
-            const g = Math.round(140 - t * 40);
-            const b = Math.round(180 - t * 80);
-            const alpha = 0.5 + t * 0.4;
+            octx.beginPath();
+            octx.strokeStyle = col; octx.lineWidth = 1.0 + t * 0.8;
+            octx.moveTo(cpx, cpy); octx.lineTo(x2, y2); octx.stroke();
 
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
-            ctx.lineWidth   = 1.0 + t * 0.8;
-            ctx.moveTo(cpx, cpy);
-            ctx.lineTo(x2, y2);
-            ctx.stroke();
-
-            // Cabeza de flecha
-            const angFlecha = Math.atan2(y2 - cpy, x2 - cpx);
-            const headLen   = 4 + t * 3;
-            ctx.beginPath();
-            ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
-            ctx.moveTo(x2, y2);
-            ctx.lineTo(
-                x2 - headLen * Math.cos(angFlecha - 0.4),
-                y2 - headLen * Math.sin(angFlecha - 0.4)
-            );
-            ctx.lineTo(
-                x2 - headLen * Math.cos(angFlecha + 0.4),
-                y2 - headLen * Math.sin(angFlecha + 0.4)
-            );
-            ctx.closePath();
-            ctx.fill();
+            const ang = Math.atan2(y2 - cpy, x2 - cpx), head = 4 + t * 3;
+            octx.beginPath();
+            octx.fillStyle = col;
+            octx.moveTo(x2, y2);
+            octx.lineTo(x2 - head * Math.cos(ang - 0.4), y2 - head * Math.sin(ang - 0.4));
+            octx.lineTo(x2 - head * Math.cos(ang + 0.4), y2 - head * Math.sin(ang + 0.4));
+            octx.closePath(); octx.fill();
         }
     }
+    apfCache = off; apfCacheEta = eta;
+}
+
+// El campo solo depende de eta: se calcula una vez y luego es un drawImage por frame
+function dibujarCampoAPF() {
+    if (!apfCache || apfCacheEta !== apfEta) construirCacheAPF();
+    ctx.drawImage(apfCache, 0, 0);
 }
 // ---- fin APF ----
 
@@ -641,12 +750,11 @@ function dibujar() {
     ctx.lineWidth   = 4;
     ctx.strokeRect(2, 2, W-4, H-4);
 
-    // Campo de fuerzas o BRT según modo
-    if (modoControl === 'apf') {
-        dibujarCampoAPF();
-    } else {
-        dibujarHJR();
-    }
+    // Qué se dibuja depende del filtro activo
+    if      (modoControl === 'apf')    dibujarCampoAPF();
+    else if (modoControl === 'cbf')    dibujarCampoCBF();
+    else if (modoControl === 'lrf' || modoControl === 'cbf_hj') dibujarHJR();
+    // 'manual' = sin filtro: no se muestra ningún set seguro
 
     obstaculos_rect.forEach((obs, i) => {
         const {cx,cy} = mundoACanvas(obs.x, obs.y);
@@ -672,8 +780,8 @@ function dibujar() {
 
     const {cx,cy} = mundoACanvas(estadoActual.x, estadoActual.y);
     const theta   = estadoActual.theta;
-    const brtVal  = valorBRTenPosicion(estadoActual.x, estadoActual.y);
-    const colorRobot = (brtVal!==null && brtVal<0) ? "#ff2222" : "#1a73e8";
+    const vFiltro    = valorFiltroActual();
+    const colorRobot = (vFiltro !== null && vFiltro < 0) ? "#ff2222" : "#1a73e8";
 
     ctx.beginPath(); ctx.fillStyle=colorRobot; ctx.arc(cx,cy,8,0,2*Math.PI); ctx.fill();
     ctx.beginPath(); ctx.strokeStyle="#fff"; ctx.lineWidth=2.5;
